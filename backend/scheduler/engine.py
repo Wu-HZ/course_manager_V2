@@ -28,6 +28,7 @@ from .constraints import (
     add_consecutive_forbidden_constraint,
     add_teacher_max_hours_constraint,
     add_teacher_class_daily_limit_constraint,
+    add_combined_class_teacher_constraint,
     add_am_preference_objective,
     add_consecutive_preference_objective,
     add_distribution_penalty,
@@ -448,24 +449,20 @@ class ScheduleEngine:
                         'is_locked': True,
                     })
 
-        # 2. 校本课程锁定 (使用分组和轮换表)
-        group_teachers = self.assign_combined_class_teachers()
-        if group_teachers and self.combined_subject:
-            # 生成轮换表
-            rotation = self.generate_rotation_table(group_teachers)
-
-            for slot_idx, (day, period) in enumerate(self.combined_slots):
+        # 2. 校本课程锁定
+        # 班级视角：这些时段上"校本课程"（不指定教师）
+        # 教师视角：如果在某个分组，这些时段被占用（在约束中处理）
+        if self.combined_subject:
+            for day, period in self.combined_slots:
                 for class_id in self.classes:
-                    if class_id in rotation and slot_idx < len(rotation[class_id]):
-                        group_id, teacher_id = rotation[class_id][slot_idx]
-                        self.locked_entries.append({
-                            'school_class_id': class_id,
-                            'subject_id': self.combined_subject.id,
-                            'teacher_id': teacher_id,
-                            'day': day,
-                            'period': period,
-                            'is_locked': True,
-                        })
+                    self.locked_entries.append({
+                        'school_class_id': class_id,
+                        'subject_id': self.combined_subject.id,
+                        'teacher_id': None,  # 不指定教师
+                        'day': day,
+                        'period': period,
+                        'is_locked': True,
+                    })
 
         # 3. 用户课表锁定
         for (class_id, day, period), lock_info in self.user_locks.items():
@@ -556,6 +553,15 @@ class ScheduleEngine:
             self.teacher_assignments,
             max_per_class=self.settings.h11_teacher_class_daily_max
         )
+
+        # H12: 校本课程教师占用约束
+        # 有分组的教师在校本课程时段不能被安排其他课程
+        if self.combined_subject and self.combined_slots:
+            add_combined_class_teacher_constraint(
+                self.model, self.schedule_vars,
+                self.teacher_assignments, self.teachers,
+                self.combined_slots
+            )
 
     def add_objectives(self):
         """添加优化目标"""

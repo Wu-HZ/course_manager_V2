@@ -448,3 +448,29 @@ def add_teacher_same_class_subject_switch_penalty(model, schedule_vars, teacher_
                             penalties.append(both * weight)
 
     return penalties
+
+
+def add_combined_class_teacher_constraint(model, schedule_vars, teacher_assignments, teachers_dict, combined_slots):
+    """
+    H12: 校本课程教师占用约束
+    有分组的教师在校本课程时段不能被安排其他课程
+    combined_slots: [(day, period), ...] 校本课程的时段
+    teachers_dict: {teacher_id: Teacher object}
+    """
+    for teacher_id, assignments in teacher_assignments.items():
+        teacher = teachers_dict.get(teacher_id)
+        if not teacher:
+            continue
+
+        # 检查该教师是否有分组且未排除
+        if not teacher.combined_class_group_id or teacher.exclude_from_combined:
+            continue
+
+        # 该教师在校本课程时段不能有其他课
+        for class_id, subject_id in assignments:
+            key = (class_id, subject_id)
+            if key not in schedule_vars:
+                continue
+            for day, period in combined_slots:
+                if (day, period) in schedule_vars[key]:
+                    model.Add(schedule_vars[key][(day, period)] == 0)

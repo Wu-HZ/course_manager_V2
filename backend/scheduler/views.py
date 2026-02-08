@@ -94,8 +94,38 @@ def class_timetable(request, result_id, class_id):
 @api_view(['GET'])
 def teacher_timetable(request, result_id, teacher_id):
     """获取某教师的课表"""
+    from core.models import Teacher, SchedulerSettings
+
     entries = ScheduleEntry.objects.filter(
         result_id=result_id, teacher_id=teacher_id
     ).select_related('school_class', 'subject').order_by('day', 'period')
     serializer = ScheduleEntrySerializer(entries, many=True)
-    return Response(serializer.data)
+    data = serializer.data
+
+    # 检查该教师是否参与校本课程
+    try:
+        teacher = Teacher.objects.get(pk=teacher_id)
+        if teacher.combined_class_group and not teacher.exclude_from_combined:
+            # 获取校本课程时段
+            settings = SchedulerSettings.objects.first()
+            if settings:
+                combined_slots = settings.get_combined_class_slots_list()
+                group_name = teacher.combined_class_group.name
+
+                # 添加校本课程时段到结果中
+                for day, period in combined_slots:
+                    data.append({
+                        'id': None,
+                        'day': day,
+                        'period': period,
+                        'subject_name': group_name,  # 显示组名
+                        'school_class_name': '(校本课程)',
+                        'teacher_name': teacher.name,
+                        'is_locked': True,
+                    })
+    except Teacher.DoesNotExist:
+        pass
+
+    # 按 day, period 排序
+    data.sort(key=lambda x: (x['day'], x['period']))
+    return Response(data)
