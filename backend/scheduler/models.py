@@ -19,6 +19,10 @@ class ScheduleResult(models.Model):
     )
     solve_time_ms = models.IntegerField('求解耗时(ms)', default=0)
     notes = models.TextField('备注', blank=True)
+    combined_class_assignments = models.JSONField(
+        '校本课程分组分配', default=dict, blank=True,
+        help_text='格式: {"分组名": ["教师名1", "教师名2", ...]}'
+    )
 
     class Meta:
         verbose_name = '排课结果'

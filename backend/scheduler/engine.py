@@ -961,22 +961,34 @@ class ScheduleEngine:
             )
 
     def save_combined_class_assignments(self, group_teachers):
-        """保存校本课程分组的自动分配结果到数据库"""
-        from core.models import Teacher, CombinedClassGroup
+        """将校本课程分组分配结果转换为可保存的格式
 
+        Returns:
+            dict: {"分组名": ["教师名1", "教师名2", ...]}
+        """
+        from core.models import CombinedClassGroup
+
+        if not group_teachers:
+            return {}
+
+        # 获取分组名称
+        groups = {g.id: g.name for g in CombinedClassGroup.objects.all()}
+
+        result = {}
         for group_id, teacher_ids in group_teachers.items():
-            for tid in teacher_ids:
-                teacher = self.teachers.get(tid)
-                if teacher and not teacher.combined_class_group_id:
-                    # 只更新原本未指定分组的教师
-                    Teacher.objects.filter(pk=tid).update(combined_class_group_id=group_id)
+            group_name = groups.get(group_id, f"分组{group_id}")
+            teacher_names = [self.teachers[tid].name for tid in teacher_ids if tid in self.teachers]
+            result[group_name] = teacher_names
 
-    def save_result(self, solve_result):
+        return result
+
+    def save_result(self, solve_result, combined_assignments=None):
         """保存排课结果"""
         result = ScheduleResult.objects.create(
             solve_status=solve_result['status'],
             solve_time_ms=solve_result['solve_time_ms'],
             is_active=(solve_result['status'] in ['OPTIMAL', 'FEASIBLE']),
+            combined_class_assignments=combined_assignments or {},
         )
 
         entries = []
@@ -1078,14 +1090,15 @@ class ScheduleEngine:
             self.errors.append("排课无解，请查看诊断信息")
 
         # 11. 如果成功，保存自动分配
+        combined_assignments = {}
         if solve_result['status'] in ['OPTIMAL', 'FEASIBLE']:
             self.save_auto_assignments()
-            # 保存校本课程分组的自动分配
+            # 生成校本课程分组分配结果（不保存到Teacher，保存到ScheduleResult）
             if self.combined_group_teachers:
-                self.save_combined_class_assignments(self.combined_group_teachers)
+                combined_assignments = self.save_combined_class_assignments(self.combined_group_teachers)
 
-        # 12. 保存结果
-        result = self.save_result(solve_result)
+        # 12. 保存结果（包含校本课程分配）
+        result = self.save_result(solve_result, combined_assignments)
 
         return {
             'success': solve_result['status'] in ['OPTIMAL', 'FEASIBLE'],

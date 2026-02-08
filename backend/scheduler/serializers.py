@@ -35,7 +35,8 @@ class ScheduleResultSerializer(serializers.ModelSerializer):
         model = ScheduleResult
         fields = [
             'id', 'created_at', 'is_active', 'solve_status',
-            'solve_time_ms', 'notes', 'entries', 'entry_count'
+            'solve_time_ms', 'notes', 'entries', 'entry_count',
+            'combined_class_assignments'
         ]
 
 
@@ -46,5 +47,6 @@ class ScheduleResultListSerializer(serializers.ModelSerializer):
         model = ScheduleResult
         fields = [
             'id', 'created_at', 'is_active', 'solve_status',
-            'solve_time_ms', 'notes', 'entry_count'
+            'solve_time_ms', 'notes', 'entry_count',
+            'combined_class_assignments'
         ]
