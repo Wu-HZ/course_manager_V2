@@ -25,7 +25,6 @@
           <el-menu-item index="/subjects">课程管理</el-menu-item>
           <el-menu-item index="/locations">场地管理</el-menu-item>
           <el-menu-item index="/travel-groups">出差分组</el-menu-item>
-          <el-menu-item index="/combined-groups">校本课程分组</el-menu-item>
           <el-menu-item index="/qualifications">教师资质</el-menu-item>
           <el-menu-item index="/assignments">授课分配</el-menu-item>
           <el-menu-item index="/schedule-locks">课表锁定</el-menu-item>

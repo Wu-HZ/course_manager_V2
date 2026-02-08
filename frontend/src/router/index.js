@@ -32,11 +32,6 @@ const routes = [
     component: () => import('../views/TravelGroupList.vue')
   },
   {
-    path: '/combined-groups',
-    name: 'CombinedGroups',
-    component: () => import('../views/CombinedGroupList.vue')
-  },
-  {
     path: '/qualifications',
     name: 'Qualifications',
     component: () => import('../views/QualificationList.vue')

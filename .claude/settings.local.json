@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(cmd.exe /c \"venv\\\\Scripts\\\\python -c \"\"from ortools.sat.python import cp_model; print\\(''OR-Tools import OK''\\)\"\"\")",
+      "Bash(cmd.exe /c test_ortools.bat)",
+      "Bash(cmd.exe /c \"cd /d D:\\\\Programs\\\\Course_Manager\\\\course_manager\\\\backend && venv\\\\Scripts\\\\python -c \"\"from ortools.sat.python import cp_model; model = cp_model.CpModel\\(\\); x = model.NewBoolVar\\(''x''\\); model.Maximize\\(x\\); solver = cp_model.CpSolver\\(\\); status = solver.Solve\\(model\\); print\\(''Status:'', status, ''x='', solver.Value\\(x\\)\\)\"\"\")",
+      "Bash(./venv/Scripts/pip install:*)",
+      "Bash(./venv/Scripts/python:*)",
+      "Bash(curl:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(npm install)",
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)",
+      "Bash(venvScriptspython -c \"exec\\(open\\(''seed_data.py'', encoding=''utf-8''\\).read\\(\\)\\)\")",
+      "Bash(D:/Programs/Course_Manager/course_manager/backend/venv/Scripts/python.exe:*)",
+      "Bash(venvScriptspython manage.py migrate)",
+      "Bash(./venv/Scripts/python.exe:*)",
+      "Bash(python manage.py migrate:*)",
+      "Bash(venv/Scripts/python:*)",
+      "Bash(venv/Scripts/pip install:*)",
+      "Bash(python manage.py makemigrations:*)",
+      "Bash(cd:*)",
+      "Bash(python:*)",
+      "Bash(pushd:*)",
+      "Bash(popd)",
+      "Bash(D:)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: 自动排课系统\n\n包含校本课程重构：\n- 移除CombinedClassGroup模型\n- 改用TeacherQualification记录校本课程教师资质\n- 自动分配4位教师并生成轮换表\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}
