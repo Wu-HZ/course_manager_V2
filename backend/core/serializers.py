@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import (
-    TravelGroup, Subject, Teacher,
+    TravelGroup, Subject, CombinedClassGroup, Teacher,
     SchoolClass, Location, ClassSubjectTeacher,
     TeacherQualification, ScheduleLock, SchedulerSettings
 )
@@ -24,9 +24,23 @@ class SubjectSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+class CombinedClassGroupSerializer(serializers.ModelSerializer):
+    teacher_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CombinedClassGroup
+        fields = '__all__'
+
+    def get_teacher_count(self, obj):
+        return obj.teacher_set.count()
+
+
 class TeacherSerializer(serializers.ModelSerializer):
     travel_group_name = serializers.CharField(
         source='travel_group.name', read_only=True, allow_null=True
+    )
+    combined_class_group_name = serializers.CharField(
+        source='combined_class_group.name', read_only=True, allow_null=True
     )
     homeroom_class_name = serializers.SerializerMethodField()
 

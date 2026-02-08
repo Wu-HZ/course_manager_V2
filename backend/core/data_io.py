@@ -9,7 +9,7 @@ from django.http import HttpResponse
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from .models import (
-    TravelGroup, Subject, Teacher,
+    TravelGroup, Subject, CombinedClassGroup, Teacher,
     SchoolClass, Location, ClassSubjectTeacher, TeacherQualification,
     ScheduleLock
 )
@@ -21,6 +21,11 @@ SHEET_CONFIG = {
         'model': TravelGroup,
         'fields': ['name', 'day_off'],
         'headers': ['分组名称', '禁排日(0周一~4周五)'],
+    },
+    '校本课程分组': {
+        'model': CombinedClassGroup,
+        'fields': ['name'],
+        'headers': ['分组名称'],
     },
     '场地': {
         'model': Location,
@@ -38,10 +43,11 @@ SHEET_CONFIG = {
     },
     '教师': {
         'model': Teacher,
-        'fields': ['name', 'travel_group__name', 'min_weekly_hours', 'max_weekly_hours'],
-        'headers': ['姓名', '出差分组名称', '周课时下限(留空不限)', '周课时上限(留空不限)'],
+        'fields': ['name', 'travel_group__name', 'combined_class_group__name', 'exclude_from_combined', 'min_weekly_hours', 'max_weekly_hours'],
+        'headers': ['姓名', '出差分组名称', '校本课程分组名称', '不参与校本课程(TRUE/FALSE)', '周课时下限(留空不限)', '周课时上限(留空不限)'],
         'fk_fields': {
             'travel_group__name': ('travel_group', TravelGroup, 'name'),
+            'combined_class_group__name': ('combined_class_group', CombinedClassGroup, 'name'),
         },
     },
     '班级': {
@@ -84,7 +90,7 @@ SHEET_CONFIG = {
 }
 
 # 导出顺序（按依赖关系排列）
-EXPORT_ORDER = ['出差分组', '场地', '课程', '教师', '班级', '教师资质', '授课分配', '课表锁定']
+EXPORT_ORDER = ['出差分组', '校本课程分组', '场地', '课程', '教师', '班级', '教师资质', '授课分配', '课表锁定']
 
 
 def style_header(ws):

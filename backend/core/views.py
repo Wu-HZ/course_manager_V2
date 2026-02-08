@@ -2,12 +2,12 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, action
 from rest_framework.response import Response
 from .models import (
-    TravelGroup, Subject, Teacher,
+    TravelGroup, Subject, CombinedClassGroup, Teacher,
     SchoolClass, Location, ClassSubjectTeacher,
     TeacherQualification, ScheduleLock, SchedulerSettings
 )
 from .serializers import (
-    TravelGroupSerializer, SubjectSerializer,
+    TravelGroupSerializer, SubjectSerializer, CombinedClassGroupSerializer,
     TeacherSerializer, SchoolClassSerializer, LocationSerializer,
     ClassSubjectTeacherSerializer,
     TeacherQualificationSerializer, ScheduleLockSerializer,
@@ -25,8 +25,15 @@ class SubjectViewSet(viewsets.ModelViewSet):
     serializer_class = SubjectSerializer
 
 
+class CombinedClassGroupViewSet(viewsets.ModelViewSet):
+    queryset = CombinedClassGroup.objects.all()
+    serializer_class = CombinedClassGroupSerializer
+
+
 class TeacherViewSet(viewsets.ModelViewSet):
-    queryset = Teacher.objects.select_related('travel_group').all()
+    queryset = Teacher.objects.select_related(
+        'travel_group', 'combined_class_group'
+    ).all()
     serializer_class = TeacherSerializer
 
 

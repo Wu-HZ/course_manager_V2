@@ -326,65 +326,103 @@ class ScheduleEngine:
                     self.model.NewBoolVar(var_name)
 
     def assign_combined_class_teachers(self):
-        """自动分配校本课程教师（需要4位）
+        """分配校本课程教师
+
+        规则：
+        1. 使用手动指定的教师（Teacher.combined_class_group）
+        2. 排除标记为"不参与"的教师（Teacher.exclude_from_combined）
+        3. 将未指定的教师随机分配到需要更多人的组
 
         Returns:
-            tuple: (combined_subject, selected_teachers) or (None, [])
+            dict: {group_id: [teacher_id, ...]} 每个组的教师列表
         """
         if not self.combined_subject:
-            return None, []
+            return {}
 
-        # 获取有资质的教师ID列表
-        qualified_ids = self.qualifications.get(self.combined_subject.id, [])
+        from core.models import CombinedClassGroup, Teacher
+        import random
 
-        if not qualified_ids:
-            self.errors.append(f"校本课程 '{self.combined_subject.name}' 没有设置可授课教师资质")
-            return None, []
+        # 获取所有分组
+        groups = list(CombinedClassGroup.objects.all().order_by('id'))
+        if len(groups) < 4:
+            self.errors.append(f"校本课程分组不足: 需要4个, 当前{len(groups)}个")
+            return {}
 
-        # 排除禁排日在周二(1)或周四(3)的教师
-        available = []
-        for tid in qualified_ids:
+        # 初始化每组的教师列表
+        group_teachers = {g.id: [] for g in groups}
+
+        # 1. 处理手动指定的教师
+        for tid, teacher in self.teachers.items():
+            if teacher.exclude_from_combined:
+                continue  # 跳过排除的教师
+            if teacher.combined_class_group_id:
+                gid = teacher.combined_class_group_id
+                if gid in group_teachers:
+                    # 检查禁排日冲突
+                    day_off = self.teacher_day_off.get(tid)
+                    if day_off in [1, 3]:  # 周二=1, 周四=3
+                        self.errors.append(
+                            f"教师 {teacher.name} 的禁排日与校本课程时段冲突，无法分配到分组"
+                        )
+                    else:
+                        group_teachers[gid].append(tid)
+
+        # 2. 收集未指定且未排除的教师
+        unassigned = []
+        for tid, teacher in self.teachers.items():
+            if teacher.exclude_from_combined:
+                continue
+            if teacher.combined_class_group_id:
+                continue  # 已手动指定
+            # 检查禁排日
             day_off = self.teacher_day_off.get(tid)
-            if day_off not in [1, 3]:  # 周二=1, 周四=3
-                available.append(tid)
+            if day_off not in [1, 3]:
+                unassigned.append(tid)
 
-        # 检查是否有足够教师
-        if len(available) < 4:
-            self.errors.append(
-                f"校本课程可用教师不足: 需要4位, 但只有{len(available)}位可用 "
-                f"(禁排日在周二/周四的教师不可用)"
-            )
-            return None, []
+        # 3. 随机分配未指定的教师到需要人的组
+        random.shuffle(unassigned)
+        for tid in unassigned:
+            # 找到教师最少的组
+            min_group = min(group_teachers.keys(), key=lambda g: len(group_teachers[g]))
+            group_teachers[min_group].append(tid)
 
-        # 选择前4位教师
-        selected = available[:4]
-        return self.combined_subject, selected
+        # 4. 检查每组是否至少有一位教师
+        for g in groups:
+            if not group_teachers[g.id]:
+                self.errors.append(f"校本课程分组 '{g.name}' 没有可用教师")
 
-    def generate_rotation_table(self, teachers):
+        return group_teachers
+
+    def generate_rotation_table(self, group_teachers):
         """生成班级轮换表
 
-        示例 (3班4师4时段):
-        时段0: A->T0, B->T1, C->T2
-        时段1: A->T1, B->T2, C->T3
-        时段2: A->T2, B->T3, C->T0
-        时段3: A->T3, B->T0, C->T1
+        每个班级在4个时段依次轮换到4个分组
 
         Args:
-            teachers: 4位教师的ID列表
+            group_teachers: {group_id: [teacher_ids]}
 
         Returns:
-            dict: {class_id: [teacher_id_slot0, teacher_id_slot1, ...]}
+            dict: {class_id: [(group_id, teacher_id), ...]} 每个班级每个时段的分配
         """
         class_ids = list(self.classes.keys())
-        num_teachers = len(teachers)
+        group_ids = list(group_teachers.keys())
+        num_groups = len(group_ids)
         num_slots = len(self.combined_slots)
 
         rotation = {}
         for i, class_id in enumerate(class_ids):
             rotation[class_id] = []
             for slot_idx in range(num_slots):
-                teacher_idx = (i + slot_idx) % num_teachers
-                rotation[class_id].append(teachers[teacher_idx])
+                group_idx = (i + slot_idx) % num_groups
+                group_id = group_ids[group_idx]
+                # 从该组的教师中轮流选择
+                teachers_in_group = group_teachers[group_id]
+                if teachers_in_group:
+                    teacher_idx = slot_idx % len(teachers_in_group)
+                    teacher_id = teachers_in_group[teacher_idx]
+                else:
+                    teacher_id = None
+                rotation[class_id].append((group_id, teacher_id))
 
         return rotation
 
@@ -410,23 +448,24 @@ class ScheduleEngine:
                         'is_locked': True,
                     })
 
-        # 2. 校本课程锁定 (自动分配教师并生成轮换表)
-        combined_subject, teachers = self.assign_combined_class_teachers()
-        if combined_subject and teachers:
-            # 生成轮换表: 每个班级在每个时段去哪个教师
-            rotation = self.generate_rotation_table(teachers)
+        # 2. 校本课程锁定 (使用分组和轮换表)
+        group_teachers = self.assign_combined_class_teachers()
+        if group_teachers and self.combined_subject:
+            # 生成轮换表
+            rotation = self.generate_rotation_table(group_teachers)
 
             for slot_idx, (day, period) in enumerate(self.combined_slots):
                 for class_id in self.classes:
-                    teacher_id = rotation[class_id][slot_idx]
-                    self.locked_entries.append({
-                        'school_class_id': class_id,
-                        'subject_id': combined_subject.id,
-                        'teacher_id': teacher_id,
-                        'day': day,
-                        'period': period,
-                        'is_locked': True,
-                    })
+                    if class_id in rotation and slot_idx < len(rotation[class_id]):
+                        group_id, teacher_id = rotation[class_id][slot_idx]
+                        self.locked_entries.append({
+                            'school_class_id': class_id,
+                            'subject_id': self.combined_subject.id,
+                            'teacher_id': teacher_id,
+                            'day': day,
+                            'period': period,
+                            'is_locked': True,
+                        })
 
         # 3. 用户课表锁定
         for (class_id, day, period), lock_info in self.user_locks.items():
@@ -819,29 +858,42 @@ class ScheduleEngine:
         if not self.combined_subject:
             diagnostics.append("  未配置校本课程")
         else:
-            qualified = self.qualifications.get(self.combined_subject.id, [])
-
-            # 检查禁排日冲突
-            available = []
-            unavailable = []
-            for tid in qualified:
-                day_off = self.teacher_day_off.get(tid)
-                if day_off in [1, 3]:  # 周二=1, 周四=3
-                    unavailable.append(f"{self.teachers[tid].name}(禁排日冲突)")
-                else:
-                    available.append(self.teachers[tid].name)
+            from core.models import CombinedClassGroup
+            groups = list(CombinedClassGroup.objects.all())
 
             diagnostics.append(f"  - 校本课程: {self.combined_subject.name}")
             diagnostics.append(f"  - 锁定时段: {len(self.combined_slots)}个 ({self.settings.combined_class_slots})")
-            diagnostics.append(f"  - 需要教师: 4位")
-            diagnostics.append(f"  - 有资质教师: {len(qualified)}位")
-            diagnostics.append(f"  - 可用教师: {len(available)}位 ({', '.join(available) if available else '无'})")
+            diagnostics.append(f"  - 分组数量: {len(groups)}个")
 
-            if unavailable:
-                diagnostics.append(f"  - 不可用: {', '.join(unavailable)}")
+            if len(groups) < 4:
+                diagnostics.append(f"[错误] 校本课程分组不足，需要4个")
 
-            if len(available) < 4:
-                diagnostics.append(f"[错误] 校本课程可用教师不足，需要4位")
+            # 统计各组情况
+            for group in groups:
+                # 手动指定的教师
+                manual = []
+                for tid, t in self.teachers.items():
+                    if t.combined_class_group_id == group.id and not t.exclude_from_combined:
+                        day_off = self.teacher_day_off.get(tid)
+                        if day_off in [1, 3]:
+                            manual.append(f"{t.name}(禁排日冲突)")
+                        else:
+                            manual.append(t.name)
+                diagnostics.append(f"  - {group.name}: {', '.join(manual) if manual else '(待自动分配)'}")
+
+            # 统计排除和未分配的教师
+            excluded = [t.name for t in self.teachers.values() if t.exclude_from_combined]
+            unassigned = []
+            for tid, t in self.teachers.items():
+                if not t.exclude_from_combined and not t.combined_class_group_id:
+                    day_off = self.teacher_day_off.get(tid)
+                    if day_off not in [1, 3]:
+                        unassigned.append(t.name)
+
+            if excluded:
+                diagnostics.append(f"  - 不参与: {', '.join(excluded)}")
+            if unassigned:
+                diagnostics.append(f"  - 待自动分配: {', '.join(unassigned)}")
 
         # 6. 检查场地容量冲突
         diagnostics.append("")

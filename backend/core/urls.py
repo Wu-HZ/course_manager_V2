@@ -6,6 +6,7 @@ from .data_io import export_data, import_data
 router = DefaultRouter()
 router.register(r'travel-groups', views.TravelGroupViewSet)
 router.register(r'subjects', views.SubjectViewSet)
+router.register(r'combined-class-groups', views.CombinedClassGroupViewSet)
 router.register(r'teachers', views.TeacherViewSet)
 router.register(r'classes', views.SchoolClassViewSet)
 router.register(r'locations', views.LocationViewSet)

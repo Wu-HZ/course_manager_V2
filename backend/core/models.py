@@ -77,12 +77,33 @@ class Subject(models.Model):
         return not grades or grade in grades
 
 
+class CombinedClassGroup(models.Model):
+    """校本课程分组 - 4个教师小组"""
+    name = models.CharField('分组名称', max_length=50)
+
+    class Meta:
+        verbose_name = '校本课程分组'
+        verbose_name_plural = verbose_name
+
+    def __str__(self):
+        return self.name
+
+
 class Teacher(models.Model):
     """教师"""
     name = models.CharField('姓名', max_length=50)
     travel_group = models.ForeignKey(
         TravelGroup, on_delete=models.SET_NULL,
         null=True, blank=True, verbose_name='出差分组'
+    )
+    combined_class_group = models.ForeignKey(
+        CombinedClassGroup, on_delete=models.SET_NULL,
+        null=True, blank=True, verbose_name='校本课程分组',
+        help_text='手动指定该教师属于哪个校本课程组，留空则自动分配'
+    )
+    exclude_from_combined = models.BooleanField(
+        '不参与校本课程', default=False,
+        help_text='勾选后该教师不会被分配到校本课程'
     )
     min_weekly_hours = models.IntegerField(
         '周课时下限', null=True, blank=True,

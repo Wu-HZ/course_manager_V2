@@ -1,6 +1,6 @@
 from django.contrib import admin
 from .models import (
-    TravelGroup, Subject, Teacher,
+    TravelGroup, Subject, CombinedClassGroup, Teacher,
     SchoolClass, Location, ClassSubjectTeacher,
     TeacherQualification, ScheduleLock, SchedulerSettings
 )
@@ -23,10 +23,20 @@ class SubjectAdmin(admin.ModelAdmin):
     search_fields = ('name',)
 
 
+@admin.register(CombinedClassGroup)
+class CombinedClassGroupAdmin(admin.ModelAdmin):
+    list_display = ('name', 'get_teacher_count')
+    search_fields = ('name',)
+
+    def get_teacher_count(self, obj):
+        return obj.teacher_set.count()
+    get_teacher_count.short_description = '教师数'
+
+
 @admin.register(Teacher)
 class TeacherAdmin(admin.ModelAdmin):
-    list_display = ('name', 'travel_group', 'min_weekly_hours', 'max_weekly_hours', 'get_homeroom_class')
-    list_filter = ('travel_group',)
+    list_display = ('name', 'travel_group', 'combined_class_group', 'exclude_from_combined', 'min_weekly_hours', 'max_weekly_hours', 'get_homeroom_class')
+    list_filter = ('travel_group', 'combined_class_group', 'exclude_from_combined')
     search_fields = ('name',)
 
     def get_homeroom_class(self, obj):
