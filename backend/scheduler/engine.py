@@ -960,6 +960,17 @@ class ScheduleEngine:
                 }
             )
 
+    def save_combined_class_assignments(self, group_teachers):
+        """保存校本课程分组的自动分配结果到数据库"""
+        from core.models import Teacher, CombinedClassGroup
+
+        for group_id, teacher_ids in group_teachers.items():
+            for tid in teacher_ids:
+                teacher = self.teachers.get(tid)
+                if teacher and not teacher.combined_class_group_id:
+                    # 只更新原本未指定分组的教师
+                    Teacher.objects.filter(pk=tid).update(combined_class_group_id=group_id)
+
     def save_result(self, solve_result):
         """保存排课结果"""
         result = ScheduleResult.objects.create(
@@ -1025,6 +1036,16 @@ class ScheduleEngine:
                 'result': None,
             }
 
+        # 3.5 分配校本课程教师到分组
+        self.combined_group_teachers = self.assign_combined_class_teachers()
+        if self.errors:
+            return {
+                'success': False,
+                'errors': self.errors,
+                'diagnostics': [],
+                'result': None,
+            }
+
         # 4. 检查是否有课程需要排
         if not self.class_subject_teacher and not self.combined_subject:
             self.errors.append("没有课程需要排课 (请设置教师资质或手动分配)")
@@ -1059,6 +1080,9 @@ class ScheduleEngine:
         # 11. 如果成功，保存自动分配
         if solve_result['status'] in ['OPTIMAL', 'FEASIBLE']:
             self.save_auto_assignments()
+            # 保存校本课程分组的自动分配
+            if self.combined_group_teachers:
+                self.save_combined_class_assignments(self.combined_group_teachers)
 
         # 12. 保存结果
         result = self.save_result(solve_result)
