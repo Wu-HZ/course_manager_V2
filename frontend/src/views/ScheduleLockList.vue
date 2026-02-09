@@ -79,8 +79,9 @@
             <el-option
               v-for="a in manualAssignments"
               :key="a.id"
-              :label="`${a.subject_name} - ${a.teacher_name}`"
+              :label="getAssignmentLabel(a)"
               :value="a.id"
+              :disabled="isSubjectFull(a)"
             />
           </el-select>
           <div v-if="manualAssignments.length === 0" style="color: #f56c6c; font-size: 12px; margin-top: 5px">
@@ -106,6 +107,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
 
 const classes = ref([])
+const subjects = ref([])  // 所有课程（包含周课时信息）
 const selectedClassId = ref(null)
 const locks = ref([])
 const assignments = ref([])  // 该班级的所有授课分配
@@ -133,13 +135,69 @@ const manualAssignments = computed(() => {
   return assignments.value.filter(a => a.is_manual)
 })
 
+// 统计每门课程已锁定的节数
+const lockedCountBySubject = computed(() => {
+  const count = {}
+  for (const lock of locks.value) {
+    count[lock.subject] = (count[lock.subject] || 0) + 1
+  }
+  return count
+})
+
+// 获取课程的周课时
+const getSubjectWeeklyHours = (subjectId) => {
+  const s = subjects.value.find(s => s.id === subjectId)
+  return s ? s.weekly_hours : 0
+}
+
+// 获取课程剩余可锁定节数
+const getRemainingSlots = (subjectId) => {
+  const weeklyHours = getSubjectWeeklyHours(subjectId)
+  const locked = lockedCountBySubject.value[subjectId] || 0
+  return weeklyHours - locked
+}
+
+// 检查课程是否已达锁定上限（考虑当前正在编辑的锁定）
+const isSubjectFull = (assignment) => {
+  const remaining = getRemainingSlots(assignment.subject)
+  // 如果正在编辑已有锁定，且选的是同一门课，不算满
+  if (hasExistingLock.value) {
+    const existingLock = getLock(editDay.value, editPeriod.value)
+    if (existingLock && existingLock.subject === assignment.subject) {
+      return remaining < 0  // 已有锁定占用了一个位置，所以允许
+    }
+  }
+  return remaining <= 0
+}
+
+// 生成下拉选项标签，显示剩余可锁定节数
+const getAssignmentLabel = (assignment) => {
+  const weeklyHours = getSubjectWeeklyHours(assignment.subject)
+  const locked = lockedCountBySubject.value[assignment.subject] || 0
+  const remaining = weeklyHours - locked
+
+  // 如果正在编辑已有锁定，且选的是同一门课，剩余数+1
+  let displayRemaining = remaining
+  if (hasExistingLock.value) {
+    const existingLock = getLock(editDay.value, editPeriod.value)
+    if (existingLock && existingLock.subject === assignment.subject) {
+      displayRemaining = remaining + 1
+    }
+  }
+
+  return `${assignment.subject_name} - ${assignment.teacher_name} (${locked}/${weeklyHours}，剩余${displayRemaining}节)`
+}
+
 // 当前选中的分配
 const selectedAssignment = computed(() => {
   return assignments.value.find(a => a.id === editAssignmentId.value)
 })
 
 const loadBase = async () => {
-  classes.value = await api.get('/classes/')
+  [classes.value, subjects.value] = await Promise.all([
+    api.get('/classes/'),
+    api.get('/subjects/')
+  ])
 }
 
 const onClassChange = async () => {
@@ -224,6 +282,19 @@ const handleSaveLock = async () => {
   }
   const assignment = selectedAssignment.value
   if (!assignment) return
+
+  // 检查是否超过周课时限制
+  const weeklyHours = getSubjectWeeklyHours(assignment.subject)
+  const currentLocked = lockedCountBySubject.value[assignment.subject] || 0
+
+  // 如果不是编辑同一门课的锁定，需要检查是否超限
+  const existingLock = getLock(editDay.value, editPeriod.value)
+  const isSameSubject = existingLock && existingLock.subject === assignment.subject
+
+  if (!isSameSubject && currentLocked >= weeklyHours) {
+    ElMessage.error(`${assignment.subject_name} 已锁定 ${currentLocked} 节，达到周课时上限 ${weeklyHours} 节`)
+    return
+  }
 
   try {
     await api.post('/schedule-locks/set/', {
