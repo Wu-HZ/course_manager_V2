@@ -474,10 +474,10 @@ class ScheduleEngine:
                 self.errors.append(f"校本课程分组 '{g.name}' 没有可用教师")
 
         # 5. 分配周二/周四
-        # 优先使用手动设置的日期，自动分配时全局平衡
+        # 优先使用手动设置，自动分配时兼顾分组内平衡和全局平衡
         result = {g.id: {"tuesday": [], "thursday": []} for g in groups}
 
-        # 先收集所有固定分配（手动指定 + 禁排日限制）
+        # 先收集所有固定分配（手动指定 + 禁排日限制）和灵活教师
         all_flexible = []  # [(tid, group_id), ...]
 
         for group_id, teacher_ids in group_teachers.items():
@@ -512,15 +512,28 @@ class ScheduleEngine:
         global_tuesday = sum(len(r["tuesday"]) for r in result.values())
         global_thursday = sum(len(r["thursday"]) for r in result.values())
 
-        # 全局平衡分配灵活教师
+        # 分配灵活教师：优先分组内平衡，分组内平衡时考虑全局平衡
         random.shuffle(all_flexible)
         for tid, group_id in all_flexible:
-            if global_tuesday <= global_thursday:
+            group_tue = len(result[group_id]["tuesday"])
+            group_thu = len(result[group_id]["thursday"])
+
+            if group_tue < group_thu:
+                # 分组内周二少，分到周二
                 result[group_id]["tuesday"].append(tid)
                 global_tuesday += 1
-            else:
+            elif group_thu < group_tue:
+                # 分组内周四少，分到周四
                 result[group_id]["thursday"].append(tid)
                 global_thursday += 1
+            else:
+                # 分组内平衡，看全局哪边少
+                if global_tuesday <= global_thursday:
+                    result[group_id]["tuesday"].append(tid)
+                    global_tuesday += 1
+                else:
+                    result[group_id]["thursday"].append(tid)
+                    global_thursday += 1
 
         return result
 
