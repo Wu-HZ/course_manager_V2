@@ -31,7 +31,8 @@
       "Bash(cmd.exe /c \"cd /d D:\\\\Programs\\\\Course_Manager\\\\course_manager && git add -A && git commit -m \"\"feat: 课表查看页面显示周课时统计\n\n显示格式：周课时28（普通课程23+校本课程4+班会课1）\n- 班会课：周五第4节\n- 校本课程：teacher为null的条目\n- 普通课程：其余条目\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\"\"\")",
       "Bash(cmd.exe /c \"cd /d D:\\\\Programs\\\\Course_Manager\\\\course_manager && git add -A && git commit -m \"\"refactor: 课表查看页面显示所有课表\n\n- 移除班级/教师下拉选择框\n- 所有课表从上往下垂直排列显示\n- 保留按班级/按教师切换\n- 并行加载所有课表数据\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\"\"\")",
       "Bash(cmd.exe /c \"D:\\\\Programs\\\\Course_Manager\\\\course_manager\\\\backend\\\\venv\\\\Scripts\\\\python.exe D:\\\\Programs\\\\Course_Manager\\\\course_manager\\\\backend\\\\manage.py check 2>&1\")",
-      "Bash(cmd.exe /c \"cd /d D:\\\\Programs\\\\Course_Manager\\\\course_manager && git add -A && git commit -m \"\"feat: 添加硬约束 - 班主任必须担任该班的一门主课\n\n- 优先为班主任分配其班级的主课\n- 分配后验证班主任是否有主课分配\n- 若无法满足则报错提示\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\"\"\")"
+      "Bash(cmd.exe /c \"cd /d D:\\\\Programs\\\\Course_Manager\\\\course_manager && git add -A && git commit -m \"\"feat: 添加硬约束 - 班主任必须担任该班的一门主课\n\n- 优先为班主任分配其班级的主课\n- 分配后验证班主任是否有主课分配\n- 若无法满足则报错提示\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\"\"\")",
+      "Bash(cmd.exe /c \"cd /d D:\\\\Programs\\\\Course_Manager\\\\course_manager && git add -A && git commit -m \"\"refactor: 授课分配页面改为表格矩阵样式\n\n- 横向为班级，纵向为课程\n- 蓝色单元格：手动指定（固定）\n- 绿色单元格：自动分配\n- 灰色单元格：未分配（可点击添加）\n- 点击单元格弹出对话框进行分配\n- 对话框中只显示有该课程资质的教师\n- 主课标记红色''主''标签\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\"\"\")"
     ]
   }
 }
