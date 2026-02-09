@@ -81,25 +81,27 @@
           <div style="display: flex; align-items: center; gap: 10px;">
             <el-input-number
               v-model="form.min_weekly_hours"
-              :min="1"
+              :min="0"
               :max="30"
               placeholder="不限"
               controls-position="right"
               style="width: 130px"
+              @change="val => form.min_weekly_hours = val === 0 ? null : val"
             />
             <span>~</span>
             <el-input-number
               v-model="form.max_weekly_hours"
-              :min="1"
+              :min="0"
               :max="30"
               placeholder="不限"
               controls-position="right"
               style="width: 130px"
+              @change="val => form.max_weekly_hours = val === 0 ? null : val"
             />
             <span style="color: #909399; font-size: 13px;">节</span>
           </div>
           <div style="color: #909399; font-size: 12px; margin-top: 5px">
-            留空表示不限制；可只设上限或下限，也可同时设置
+            留空或输入0表示不限制；可只设上限或下限，也可同时设置
           </div>
         </el-form-item>
       </el-form>
