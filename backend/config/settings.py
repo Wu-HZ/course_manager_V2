@@ -2,13 +2,15 @@
 Django settings for course_manager project.
 """
 
+import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-insecure-dev-key-change-in-production'
 
-DEBUG = True
+# 通过环境变量控制调试模式
+DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() == 'true'
 
 ALLOWED_HOSTS = ['*']
 
@@ -30,6 +32,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # 静态文件服务
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -40,10 +43,13 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'config.urls'
 
+# 前端构建目录
+FRONTEND_DIR = BASE_DIR.parent / 'frontend' / 'dist'
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [FRONTEND_DIR],  # 添加前端目录
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -58,10 +64,12 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
+# 数据库 - 支持自定义路径
+DB_PATH = os.environ.get('DB_PATH', BASE_DIR / 'db.sqlite3')
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': DB_PATH,
     }
 }
 
@@ -70,12 +78,17 @@ TIME_ZONE = 'Asia/Shanghai'
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = 'static/'
-
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+# 静态文件配置
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_DIRS = [
+    FRONTEND_DIR / 'assets',  # 前端构建的资源
+] if FRONTEND_DIR.exists() and (FRONTEND_DIR / 'assets').exists() else []
 
 # CORS
 CORS_ALLOW_ALL_ORIGINS = True
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # DRF
 REST_FRAMEWORK = {

@@ -2,3 +2,5 @@ Django>=4.2
 djangorestframework>=3.14
 django-cors-headers>=4.0
 ortools==9.8.3296
+whitenoise>=6.0
+numpy<2
