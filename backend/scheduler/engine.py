@@ -473,30 +473,50 @@ class ScheduleEngine:
             if not group_teachers[g.id]:
                 self.errors.append(f"校本课程分组 '{g.name}' 没有可用教师")
 
-        # 5. 分配周二/周四，确保每个分组内和全局都平衡
+        # 5. 分配周二/周四，确保每个分组内平衡
+        # 优先使用手动设置的日期
         result = {g.id: {"tuesday": [], "thursday": []} for g in groups}
 
         # 对每个分组单独处理
         for group_id, teacher_ids in group_teachers.items():
-            # 分类：只能周二、只能周四、都可以
+            # 分类：手动指定周二、手动指定周四、只能周二、只能周四、都可以
+            manual_tuesday = []
+            manual_thursday = []
             tuesday_only = []
             thursday_only = []
             flexible = []
 
             for tid in teacher_ids:
+                teacher = self.teachers[tid]
                 day_off = self.teacher_day_off.get(tid)
                 can_tuesday = (day_off != 1)
                 can_thursday = (day_off != 3)
 
-                if can_tuesday and not can_thursday:
+                # 检查手动设置的日期
+                manual_day = teacher.combined_class_day
+                if manual_day == 1 and can_tuesday:
+                    manual_tuesday.append(tid)
+                elif manual_day == 3 and can_thursday:
+                    manual_thursday.append(tid)
+                elif manual_day is not None:
+                    # 手动设置与禁排日冲突，忽略手动设置
+                    if can_tuesday and not can_thursday:
+                        tuesday_only.append(tid)
+                    elif can_thursday and not can_tuesday:
+                        thursday_only.append(tid)
+                    else:
+                        flexible.append(tid)
+                elif can_tuesday and not can_thursday:
                     tuesday_only.append(tid)
                 elif can_thursday and not can_tuesday:
                     thursday_only.append(tid)
                 elif can_tuesday and can_thursday:
                     flexible.append(tid)
 
-            # 先放入只能去特定日期的
+            # 先放入手动指定和只能去特定日期的
+            result[group_id]["tuesday"].extend(manual_tuesday)
             result[group_id]["tuesday"].extend(tuesday_only)
+            result[group_id]["thursday"].extend(manual_thursday)
             result[group_id]["thursday"].extend(thursday_only)
 
             # 灵活教师在分组内平衡分配

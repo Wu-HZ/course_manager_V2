@@ -42,6 +42,9 @@ class TeacherSerializer(serializers.ModelSerializer):
     combined_class_group_name = serializers.CharField(
         source='combined_class_group.name', read_only=True, allow_null=True
     )
+    combined_class_day_display = serializers.CharField(
+        source='get_combined_class_day_display', read_only=True, allow_null=True
+    )
     homeroom_class_name = serializers.SerializerMethodField()
 
     class Meta:

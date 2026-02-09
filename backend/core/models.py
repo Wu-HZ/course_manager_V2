@@ -91,6 +91,11 @@ class CombinedClassGroup(models.Model):
 
 class Teacher(models.Model):
     """教师"""
+    COMBINED_DAY_CHOICES = [
+        (1, '周二'),
+        (3, '周四'),
+    ]
+
     name = models.CharField('姓名', max_length=50)
     travel_group = models.ForeignKey(
         TravelGroup, on_delete=models.SET_NULL,
@@ -100,6 +105,11 @@ class Teacher(models.Model):
         CombinedClassGroup, on_delete=models.SET_NULL,
         null=True, blank=True, verbose_name='校本课程分组',
         help_text='手动指定该教师属于哪个校本课程组，留空则自动分配'
+    )
+    combined_class_day = models.IntegerField(
+        '校本课程日期', choices=COMBINED_DAY_CHOICES,
+        null=True, blank=True,
+        help_text='手动指定该教师上校本课程的日期，留空则自动分配'
     )
     exclude_from_combined = models.BooleanField(
         '不参与校本课程', default=False,

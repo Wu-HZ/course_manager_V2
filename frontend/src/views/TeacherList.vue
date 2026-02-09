@@ -11,11 +11,16 @@
       <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="name" label="姓名" />
       <el-table-column prop="travel_group_name" label="出差分组" />
-      <el-table-column label="校本课程" width="140">
+      <el-table-column label="校本课程" width="180">
         <template #default="{ row }">
           <el-tag v-if="row.exclude_from_combined" type="info">不参与</el-tag>
-          <span v-else-if="row.combined_class_group_name">{{ row.combined_class_group_name }}</span>
-          <span v-else style="color: #909399">自动分配</span>
+          <template v-else>
+            <span v-if="row.combined_class_group_name">{{ row.combined_class_group_name }}</span>
+            <span v-else style="color: #909399">自动分组</span>
+            <span v-if="row.combined_class_day_display" style="margin-left: 5px; color: #409eff">
+              ({{ row.combined_class_day_display }})
+            </span>
+          </template>
         </template>
       </el-table-column>
       <el-table-column label="周课时" width="150">
@@ -69,6 +74,17 @@
               :label="g.name"
               :value="g.id"
             />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="校本课程日期">
+          <el-select
+            v-model="form.combined_class_day"
+            clearable
+            placeholder="留空自动分配"
+            :disabled="form.exclude_from_combined"
+          >
+            <el-option :value="1" label="周二" />
+            <el-option :value="3" label="周四" />
           </el-select>
         </el-form-item>
         <el-form-item label="不参与校本课程">
@@ -128,15 +144,17 @@ const form = ref({
   name: '',
   travel_group: null,
   combined_class_group: null,
+  combined_class_day: null,
   exclude_from_combined: false,
   min_weekly_hours: null,
   max_weekly_hours: null
 })
 
-// 当勾选"不参与校本课程"时，清空分组选择
+// 当勾选"不参与校本课程"时，清空分组和日期选择
 watch(() => form.value.exclude_from_combined, (val) => {
   if (val) {
     form.value.combined_class_group = null
+    form.value.combined_class_day = null
   }
 })
 
@@ -153,6 +171,7 @@ const showDialog = (row = null) => {
       name: row.name,
       travel_group: row.travel_group,
       combined_class_group: row.combined_class_group,
+      combined_class_day: row.combined_class_day,
       exclude_from_combined: row.exclude_from_combined || false,
       min_weekly_hours: row.min_weekly_hours,
       max_weekly_hours: row.max_weekly_hours
@@ -163,6 +182,7 @@ const showDialog = (row = null) => {
       name: '',
       travel_group: null,
       combined_class_group: null,
+      combined_class_day: null,
       exclude_from_combined: false,
       min_weekly_hours: null,
       max_weekly_hours: null
