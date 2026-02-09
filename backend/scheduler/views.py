@@ -140,7 +140,7 @@ def teacher_timetable(request, result_id, teacher_id):
                                 'id': None,
                                 'day': day,
                                 'period': period,
-                                'subject_name': f'校本课程({assigned_group})',
+                                'subject_name': '校本课程',
                                 'school_class_name': '(全年级)',
                                 'teacher_name': teacher_name,
                                 'is_locked': True,
