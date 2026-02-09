@@ -1206,6 +1206,7 @@ def run_scheduler(time_limit_seconds=60, max_attempts=10, total_timeout_seconds=
     attempts = 0
     failures = []  # 记录每次失败的原因
     result = None  # 保存最后一次尝试的结果
+    saved_diagnostics = []  # 保存第一次"排课无解"的诊断信息
 
     while attempts < max_attempts:
         elapsed = time_module.time() - start_time
@@ -1239,15 +1240,21 @@ def run_scheduler(time_limit_seconds=60, max_attempts=10, total_timeout_seconds=
                 'attempt': attempts,
                 'reason': failure_reason[:100],  # 截断过长的错误信息
             })
+            # 保存第一次"排课无解"的诊断信息
+            if not saved_diagnostics and result.get('diagnostics'):
+                saved_diagnostics = result['diagnostics']
 
     # 所有尝试都失败了，返回最后一次的结果
     total_time = int((time_module.time() - start_time) * 1000)
+
+    # 使用保存的诊断信息（如果有的话）
+    final_diagnostics = saved_diagnostics or (result.get('diagnostics', []) if result else [])
 
     # 创建一个汇总结果
     final_result = {
         'success': False,
         'errors': [f"尝试 {attempts} 次后仍然失败"],
-        'diagnostics': result.get('diagnostics', []) if result else [],
+        'diagnostics': final_diagnostics,
         'result': result.get('result') if result else None,
         'status': 'FAILED_ALL_ATTEMPTS',
         'solve_time_ms': total_time,
