@@ -473,19 +473,14 @@ class ScheduleEngine:
             if not group_teachers[g.id]:
                 self.errors.append(f"校本课程分组 '{g.name}' 没有可用教师")
 
-        # 5. 分配周二/周四，确保每个分组内平衡
-        # 优先使用手动设置的日期
+        # 5. 分配周二/周四
+        # 优先使用手动设置的日期，自动分配时全局平衡
         result = {g.id: {"tuesday": [], "thursday": []} for g in groups}
 
-        # 对每个分组单独处理
-        for group_id, teacher_ids in group_teachers.items():
-            # 分类：手动指定周二、手动指定周四、只能周二、只能周四、都可以
-            manual_tuesday = []
-            manual_thursday = []
-            tuesday_only = []
-            thursday_only = []
-            flexible = []
+        # 先收集所有固定分配（手动指定 + 禁排日限制）
+        all_flexible = []  # [(tid, group_id), ...]
 
+        for group_id, teacher_ids in group_teachers.items():
             for tid in teacher_ids:
                 teacher = self.teachers[tid]
                 day_off = self.teacher_day_off.get(tid)
@@ -495,39 +490,37 @@ class ScheduleEngine:
                 # 检查手动设置的日期
                 manual_day = teacher.combined_class_day
                 if manual_day == 1 and can_tuesday:
-                    manual_tuesday.append(tid)
-                elif manual_day == 3 and can_thursday:
-                    manual_thursday.append(tid)
-                elif manual_day is not None:
-                    # 手动设置与禁排日冲突，忽略手动设置
-                    if can_tuesday and not can_thursday:
-                        tuesday_only.append(tid)
-                    elif can_thursday and not can_tuesday:
-                        thursday_only.append(tid)
-                    else:
-                        flexible.append(tid)
-                elif can_tuesday and not can_thursday:
-                    tuesday_only.append(tid)
-                elif can_thursday and not can_tuesday:
-                    thursday_only.append(tid)
-                elif can_tuesday and can_thursday:
-                    flexible.append(tid)
-
-            # 先放入手动指定和只能去特定日期的
-            result[group_id]["tuesday"].extend(manual_tuesday)
-            result[group_id]["tuesday"].extend(tuesday_only)
-            result[group_id]["thursday"].extend(manual_thursday)
-            result[group_id]["thursday"].extend(thursday_only)
-
-            # 灵活教师在分组内平衡分配
-            random.shuffle(flexible)
-            for tid in flexible:
-                tue_count = len(result[group_id]["tuesday"])
-                thu_count = len(result[group_id]["thursday"])
-                if tue_count <= thu_count:
                     result[group_id]["tuesday"].append(tid)
-                else:
+                elif manual_day == 3 and can_thursday:
                     result[group_id]["thursday"].append(tid)
+                elif manual_day is not None:
+                    # 手动设置与禁排日冲突，按禁排日限制处理
+                    if can_tuesday and not can_thursday:
+                        result[group_id]["tuesday"].append(tid)
+                    elif can_thursday and not can_tuesday:
+                        result[group_id]["thursday"].append(tid)
+                    else:
+                        all_flexible.append((tid, group_id))
+                elif can_tuesday and not can_thursday:
+                    result[group_id]["tuesday"].append(tid)
+                elif can_thursday and not can_tuesday:
+                    result[group_id]["thursday"].append(tid)
+                elif can_tuesday and can_thursday:
+                    all_flexible.append((tid, group_id))
+
+        # 计算当前全局周二/周四人数
+        global_tuesday = sum(len(r["tuesday"]) for r in result.values())
+        global_thursday = sum(len(r["thursday"]) for r in result.values())
+
+        # 全局平衡分配灵活教师
+        random.shuffle(all_flexible)
+        for tid, group_id in all_flexible:
+            if global_tuesday <= global_thursday:
+                result[group_id]["tuesday"].append(tid)
+                global_tuesday += 1
+            else:
+                result[group_id]["thursday"].append(tid)
+                global_thursday += 1
 
         return result
 
