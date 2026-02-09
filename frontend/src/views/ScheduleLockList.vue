@@ -374,7 +374,7 @@ onMounted(loadBase)
   border-radius: 3px;
   border: 1px solid #dcdfe6;
 }
-.cell-demo.locked { background: #e1f3d8; }
+.cell-demo.locked { background: #d9ecff; }
 .cell-demo.special { background: #f0f0f0; }
 
 .schedule-grid { overflow-x: auto; }
@@ -400,10 +400,10 @@ onMounted(loadBase)
 }
 .special-cell:hover { background: #f0f0f0; }
 
-.has-lock { background: #e1f3d8; }
-.has-lock:hover { background: #d1ebc8; }
+.has-lock { background: #d9ecff; }
+.has-lock:hover { background: #c6e2ff; }
 
-.locked-cell .subject-name { font-weight: bold; color: #67c23a; font-size: 14px; }
+.locked-cell .subject-name { font-weight: bold; color: #409eff; font-size: 14px; }
 .locked-cell .teacher-name { color: #909399; font-size: 12px; margin-top: 2px; }
 
 .empty-cell { color: #dcdfe6; font-size: 20px; }
