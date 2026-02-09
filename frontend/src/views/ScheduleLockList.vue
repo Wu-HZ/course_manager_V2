@@ -23,9 +23,7 @@
 
     <el-alert v-else-if="selectedClassId" type="info" :closable="false" style="margin-bottom: 20px">
       <div class="legend">
-        <span>点击单元格锁定课程时间：</span>
-        <span class="legend-item"><span class="cell-demo locked"></span> 已锁定</span>
-        <span class="legend-item"><span class="cell-demo special"></span> 特殊时段（不可编辑）</span>
+        <span>操作说明：先在下方选中课程，再点击课表单元格填入。点击已锁定单元格可删除。</span>
       </div>
     </el-alert>
 
@@ -68,36 +66,37 @@
       请先选择一个班级
     </div>
 
-    <!-- 锁定设置弹窗 -->
-    <el-dialog v-model="dialogVisible" title="设置课表锁定" width="400px">
-      <el-form label-width="80px">
-        <el-form-item label="时间">
-          {{ dayNames[editDay] }} 第{{ editPeriod + 1 }}节
-        </el-form-item>
-        <el-form-item label="课程" required>
-          <el-select v-model="editAssignmentId" placeholder="选择已分配的课程" style="width: 100%;" @change="onAssignmentChange">
-            <el-option
-              v-for="a in manualAssignments"
-              :key="a.id"
-              :label="getAssignmentLabel(a)"
-              :value="a.id"
-              :disabled="isSubjectFull(a)"
-            />
-          </el-select>
-          <div v-if="manualAssignments.length === 0" style="color: #f56c6c; font-size: 12px; margin-top: 5px">
-            没有手动指定的授课分配
+    <!-- 可用课程列表 -->
+    <div v-if="selectedClassId && manualAssignments.length > 0" class="course-panel">
+      <div class="panel-header">
+        <span>可用课程</span>
+        <span v-if="selectedAssignment" class="selected-hint">
+          已选中: {{ selectedAssignment.subject_name }} - {{ selectedAssignment.teacher_name }}
+        </span>
+      </div>
+      <div class="course-list">
+        <div
+          v-for="a in manualAssignments"
+          :key="a.id"
+          class="course-item"
+          :class="{
+            'selected': selectedAssignmentId === a.id,
+            'disabled': isSubjectFull(a)
+          }"
+          @click="selectAssignment(a)"
+        >
+          <div class="course-info">
+            <span class="course-name">{{ a.subject_name }}</span>
+            <span class="course-teacher">{{ a.teacher_name }}</span>
           </div>
-        </el-form-item>
-        <el-form-item label="教师" v-if="selectedAssignment">
-          <el-input :value="selectedAssignment.teacher_name" disabled />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button v-if="hasExistingLock" type="danger" @click="handleDeleteLock">删除锁定</el-button>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSaveLock" :disabled="!editAssignmentId">确定</el-button>
-      </template>
-    </el-dialog>
+          <div class="course-status">
+            <span :class="{ 'full': isSubjectFull(a) }">
+              {{ getLockedCount(a.subject) }}/{{ getSubjectWeeklyHours(a.subject) }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -111,9 +110,9 @@ const subjects = ref([])  // 所有课程（包含周课时信息）
 const selectedClassId = ref(null)
 const locks = ref([])
 const assignments = ref([])  // 该班级的所有授课分配
+const selectedAssignmentId = ref(null)  // 当前选中的课程分配
 
 const dayNames = ['周一', '周二', '周三', '周四', '周五']
-const periodsPerDay = { 0: 6, 1: 6, 2: 6, 3: 6, 4: 4 }
 const maxPeriods = 6
 
 // 特殊时段
@@ -122,13 +121,6 @@ const combinedSlots = [
   { day: 1, period: 4 }, { day: 1, period: 5 },
   { day: 3, period: 4 }, { day: 3, period: 5 }
 ]
-
-// 弹窗状态
-const dialogVisible = ref(false)
-const editDay = ref(0)
-const editPeriod = ref(0)
-const editAssignmentId = ref(null)
-const hasExistingLock = ref(false)
 
 // 只显示手动指定的分配
 const manualAssignments = computed(() => {
@@ -150,47 +142,21 @@ const getSubjectWeeklyHours = (subjectId) => {
   return s ? s.weekly_hours : 0
 }
 
-// 获取课程剩余可锁定节数
-const getRemainingSlots = (subjectId) => {
-  const weeklyHours = getSubjectWeeklyHours(subjectId)
-  const locked = lockedCountBySubject.value[subjectId] || 0
-  return weeklyHours - locked
+// 获取已锁定节数
+const getLockedCount = (subjectId) => {
+  return lockedCountBySubject.value[subjectId] || 0
 }
 
-// 检查课程是否已达锁定上限（考虑当前正在编辑的锁定）
+// 检查课程是否已达锁定上限
 const isSubjectFull = (assignment) => {
-  const remaining = getRemainingSlots(assignment.subject)
-  // 如果正在编辑已有锁定，且选的是同一门课，不算满
-  if (hasExistingLock.value) {
-    const existingLock = getLock(editDay.value, editPeriod.value)
-    if (existingLock && existingLock.subject === assignment.subject) {
-      return remaining < 0  // 已有锁定占用了一个位置，所以允许
-    }
-  }
-  return remaining <= 0
-}
-
-// 生成下拉选项标签，显示剩余可锁定节数
-const getAssignmentLabel = (assignment) => {
   const weeklyHours = getSubjectWeeklyHours(assignment.subject)
-  const locked = lockedCountBySubject.value[assignment.subject] || 0
-  const remaining = weeklyHours - locked
-
-  // 如果正在编辑已有锁定，且选的是同一门课，剩余数+1
-  let displayRemaining = remaining
-  if (hasExistingLock.value) {
-    const existingLock = getLock(editDay.value, editPeriod.value)
-    if (existingLock && existingLock.subject === assignment.subject) {
-      displayRemaining = remaining + 1
-    }
-  }
-
-  return `${assignment.subject_name} - ${assignment.teacher_name} (${locked}/${weeklyHours}，剩余${displayRemaining}节)`
+  const locked = getLockedCount(assignment.subject)
+  return locked >= weeklyHours
 }
 
 // 当前选中的分配
 const selectedAssignment = computed(() => {
-  return assignments.value.find(a => a.id === editAssignmentId.value)
+  return assignments.value.find(a => a.id === selectedAssignmentId.value)
 })
 
 const loadBase = async () => {
@@ -201,6 +167,7 @@ const loadBase = async () => {
 }
 
 const onClassChange = async () => {
+  selectedAssignmentId.value = null
   await Promise.all([loadLocks(), loadAssignments()])
 }
 
@@ -217,7 +184,6 @@ const loadAssignments = async () => {
     assignments.value = []
     return
   }
-  // 获取该班级的授课分配
   const all = await api.get('/class-subject-teachers/')
   assignments.value = all.filter(a => a.school_class === selectedClassId.value)
 }
@@ -246,93 +212,76 @@ const getCellClass = (day, period) => {
   return ''
 }
 
-const handleCellClick = (day, period) => {
+// 选中课程
+const selectAssignment = (assignment) => {
+  if (isSubjectFull(assignment)) {
+    ElMessage.warning(`${assignment.subject_name} 已达到周课时上限`)
+    return
+  }
+  selectedAssignmentId.value = assignment.id
+}
+
+// 点击单元格
+const handleCellClick = async (day, period) => {
   if (isSpecialSlot(day, period)) return
-  if (manualAssignments.value.length === 0) {
-    ElMessage.warning('请先在"授课分配"页面进行手动指定')
-    return
-  }
 
-  const existing = getLock(day, period)
-  editDay.value = day
-  editPeriod.value = period
+  const existingLock = getLock(day, period)
 
-  if (existing) {
-    // 找到对应的分配
-    const matchingAssignment = assignments.value.find(
-      a => a.subject === existing.subject && a.teacher === existing.teacher
-    )
-    editAssignmentId.value = matchingAssignment?.id || null
-    hasExistingLock.value = true
+  if (existingLock) {
+    // 已有锁定，询问是否删除
+    try {
+      await ElMessageBox.confirm(
+        `确定删除 ${existingLock.subject_name} 的锁定？`,
+        '删除锁定',
+        { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+      )
+      await api.delete('/schedule-locks/delete/', {
+        data: {
+          school_class: selectedClassId.value,
+          day: day,
+          period: period,
+        }
+      })
+      ElMessage.success('已删除锁定')
+      loadLocks()
+    } catch (e) {
+      // 用户取消或请求失败
+    }
   } else {
-    editAssignmentId.value = null
-    hasExistingLock.value = false
-  }
-  dialogVisible.value = true
-}
+    // 空单元格，填入选中的课程
+    if (!selectedAssignmentId.value) {
+      ElMessage.warning('请先在下方选择一个课程')
+      return
+    }
 
-const onAssignmentChange = () => {
-  // 选择分配后自动填充教师信息
-}
+    const assignment = selectedAssignment.value
+    if (!assignment) return
 
-const handleSaveLock = async () => {
-  if (!editAssignmentId.value) {
-    ElMessage.warning('请选择课程')
-    return
-  }
-  const assignment = selectedAssignment.value
-  if (!assignment) return
+    // 检查是否超过周课时限制
+    if (isSubjectFull(assignment)) {
+      ElMessage.error(`${assignment.subject_name} 已达到周课时上限`)
+      return
+    }
 
-  // 检查是否超过周课时限制
-  const weeklyHours = getSubjectWeeklyHours(assignment.subject)
-  const currentLocked = lockedCountBySubject.value[assignment.subject] || 0
-
-  // 如果不是编辑同一门课的锁定，需要检查是否超限
-  const existingLock = getLock(editDay.value, editPeriod.value)
-  const isSameSubject = existingLock && existingLock.subject === assignment.subject
-
-  if (!isSameSubject && currentLocked >= weeklyHours) {
-    ElMessage.error(`${assignment.subject_name} 已锁定 ${currentLocked} 节，达到周课时上限 ${weeklyHours} 节`)
-    return
-  }
-
-  try {
-    await api.post('/schedule-locks/set/', {
-      school_class: selectedClassId.value,
-      day: editDay.value,
-      period: editPeriod.value,
-      subject: assignment.subject,
-      teacher: assignment.teacher,
-    })
-    ElMessage.success('锁定成功')
-    dialogVisible.value = false
-    loadLocks()
-  } catch (e) {
-    ElMessage.error('操作失败')
-  }
-}
-
-const handleDeleteLock = async () => {
-  try {
-    await api.delete('/schedule-locks/delete/', {
-      data: {
+    try {
+      await api.post('/schedule-locks/set/', {
         school_class: selectedClassId.value,
-        day: editDay.value,
-        period: editPeriod.value,
-      }
-    })
-    ElMessage.success('已取消锁定')
-    dialogVisible.value = false
-    loadLocks()
-  } catch (e) {
-    ElMessage.error('操作失败')
+        day: day,
+        period: period,
+        subject: assignment.subject,
+        teacher: assignment.teacher,
+      })
+      ElMessage.success('锁定成功')
+      loadLocks()
+    } catch (e) {
+      ElMessage.error('操作失败')
+    }
   }
 }
 
 const handleClearAll = async () => {
   await ElMessageBox.confirm('确定清空该班级的所有课表锁定?', '提示', { type: 'warning' })
   try {
-    // 逐个删除该班级的锁定
     for (const lock of locks.value) {
       await api.delete('/schedule-locks/delete/', {
         data: {
@@ -356,26 +305,6 @@ onMounted(loadBase)
 .page-container { background: #fff; padding: 20px; border-radius: 4px; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
 .page-header h2 { margin: 0; }
-
-.legend {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-}
-.legend-item {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-.cell-demo {
-  display: inline-block;
-  width: 20px;
-  height: 20px;
-  border-radius: 3px;
-  border: 1px solid #dcdfe6;
-}
-.cell-demo.locked { background: #d9ecff; }
-.cell-demo.special { background: #f0f0f0; }
 
 .schedule-grid { overflow-x: auto; }
 .schedule-grid table { width: 100%; border-collapse: collapse; table-layout: fixed; }
@@ -410,4 +339,99 @@ onMounted(loadBase)
 .special { color: #909399; font-size: 12px; }
 
 .empty-tip { text-align: center; color: #909399; padding: 60px 0; font-size: 16px; }
+
+/* 可用课程面板 */
+.course-panel {
+  margin-top: 20px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: #f5f7fa;
+  border-bottom: 1px solid #dcdfe6;
+  font-weight: bold;
+}
+
+.selected-hint {
+  font-weight: normal;
+  color: #409eff;
+  font-size: 14px;
+}
+
+.course-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 16px;
+}
+
+.course-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  border: 2px solid #dcdfe6;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-width: 180px;
+  background: #fff;
+}
+
+.course-item:hover {
+  border-color: #409eff;
+  background: #ecf5ff;
+}
+
+.course-item.selected {
+  border-color: #409eff;
+  background: #409eff;
+  color: #fff;
+}
+
+.course-item.selected .course-teacher,
+.course-item.selected .course-status span {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.course-item.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #f5f5f5;
+}
+
+.course-item.disabled:hover {
+  border-color: #dcdfe6;
+  background: #f5f5f5;
+}
+
+.course-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.course-name {
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.course-teacher {
+  font-size: 12px;
+  color: #909399;
+}
+
+.course-status {
+  font-size: 13px;
+  color: #606266;
+}
+
+.course-status .full {
+  color: #f56c6c;
+}
 </style>
