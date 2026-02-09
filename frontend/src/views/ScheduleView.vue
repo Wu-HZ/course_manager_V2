@@ -56,10 +56,11 @@
     <!-- 校本课程分组分配表 -->
     <el-card v-if="combinedAssignments && Object.keys(combinedAssignments).length" class="combined-card">
       <template #header>
-        <span>校本课程分组分配</span>
+        <span>校本课程教师分组</span>
       </template>
       <el-table :data="combinedAssignmentsList" stripe border>
-        <el-table-column prop="groupName" label="分组名称" width="150" />
+        <el-table-column prop="groupName" label="分组" width="120" />
+        <el-table-column prop="dayLabel" label="上课日期" width="120" />
         <el-table-column prop="teachers" label="分配教师">
           <template #default="{ row }">
             <el-tag v-for="t in row.teachers" :key="t" style="margin-right: 5px;">{{ t }}</el-tag>
@@ -166,8 +167,13 @@ const teacherChartOption = computed(() => {
 
 // 转换为表格数据格式
 const combinedAssignmentsList = computed(() => {
+  const dayLabels = {
+    '周二组': '周二下午',
+    '周四组': '周四下午'
+  }
   return Object.entries(combinedAssignments.value).map(([groupName, teacherList]) => ({
     groupName,
+    dayLabel: dayLabels[groupName] || groupName,
     teachers: teacherList,
     count: teacherList.length
   }))
@@ -182,7 +188,12 @@ const calcStats = (entries) => {
   for (const e of entries) {
     if (e.day === 4 && e.period === 3) {
       meeting++
-    } else if (e.teacher === null || e.teacher_name === null) {
+    } else if (
+      e.teacher === null ||
+      e.teacher_name === null ||
+      e.subject_name === '校本课程' ||
+      e.school_class_name === '(全年级)'
+    ) {
       combined++
     }
   }

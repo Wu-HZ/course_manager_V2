@@ -105,25 +105,39 @@ def teacher_timetable(request, result_id, teacher_id):
     # 检查该教师是否参与校本课程
     try:
         teacher = Teacher.objects.get(pk=teacher_id)
-        if teacher.combined_class_group and not teacher.exclude_from_combined:
-            # 获取校本课程时段
-            settings = SchedulerSettings.objects.first()
-            if settings:
-                combined_slots = settings.get_combined_class_slots_list()
-                group_name = teacher.combined_class_group.name
+        result = ScheduleResult.objects.get(pk=result_id)
 
-                # 添加校本课程时段到结果中
-                for day, period in combined_slots:
-                    data.append({
-                        'id': None,
-                        'day': day,
-                        'period': period,
-                        'subject_name': group_name,  # 显示组名
-                        'school_class_name': '(校本课程)',
-                        'teacher_name': teacher.name,
-                        'is_locked': True,
-                    })
-    except Teacher.DoesNotExist:
+        if not teacher.exclude_from_combined:
+            # 从排课结果中获取分组信息
+            combined_assignments = result.combined_class_assignments or {}
+            teacher_name = teacher.name
+
+            # 检查教师在哪个组
+            assigned_day = None
+            if "周二组" in combined_assignments and teacher_name in combined_assignments["周二组"]:
+                assigned_day = 1  # 周二
+            elif "周四组" in combined_assignments and teacher_name in combined_assignments["周四组"]:
+                assigned_day = 3  # 周四
+
+            if assigned_day is not None:
+                # 获取校本课程时段
+                settings = SchedulerSettings.objects.first()
+                if settings:
+                    combined_slots = settings.get_combined_class_slots_list()
+
+                    # 只添加该教师分配日期的校本课程时段
+                    for day, period in combined_slots:
+                        if day == assigned_day:
+                            data.append({
+                                'id': None,
+                                'day': day,
+                                'period': period,
+                                'subject_name': '校本课程',
+                                'school_class_name': '(全年级)',
+                                'teacher_name': teacher_name,
+                                'is_locked': True,
+                            })
+    except (Teacher.DoesNotExist, ScheduleResult.DoesNotExist):
         pass
 
     # 按 day, period 排序
