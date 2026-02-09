@@ -141,14 +141,18 @@ def add_consecutive_forbidden_constraint(model, schedule_vars, subjects_dict, fo
                     model.Add(slots[(day, p1)] + slots[(day, p2)] <= 1)
 
 
-def add_teacher_max_hours_constraint(model, schedule_vars, teacher_assignments, teachers_dict):
+def add_teacher_max_hours_constraint(model, schedule_vars, teacher_assignments, teachers_dict, teacher_lock_counts=None):
     """
     H10: 教师周课时约束
     - 教师的总课时不超过 max_weekly_hours（如果设置了的话）
     - 教师的总课时不少于 min_weekly_hours（如果设置了的话）
     teacher_assignments: {teacher_id: [(class_id, subject_id), ...]}
     teachers_dict: {teacher_id: Teacher object}
+    teacher_lock_counts: {teacher_id: locked_hours} 每个教师已锁定的课时数
     """
+    if teacher_lock_counts is None:
+        teacher_lock_counts = {}
+
     for teacher_id, assignments in teacher_assignments.items():
         teacher = teachers_dict.get(teacher_id)
         if not teacher:
@@ -161,16 +165,21 @@ def add_teacher_max_hours_constraint(model, schedule_vars, teacher_assignments, 
             if key in schedule_vars:
                 all_vars.extend(schedule_vars[key].values())
 
-        if not all_vars:
-            continue
+        # 该教师已锁定的课时数
+        locked_hours = teacher_lock_counts.get(teacher_id, 0)
 
-        # 上限约束
+        # 上限约束：变量总和 + 已锁定 <= 上限
         if teacher.max_weekly_hours is not None:
-            model.Add(sum(all_vars) <= teacher.max_weekly_hours)
+            remaining = teacher.max_weekly_hours - locked_hours
+            if all_vars:
+                model.Add(sum(all_vars) <= remaining)
 
-        # 下限约束
+        # 下限约束：变量总和 + 已锁定 >= 下限
         if teacher.min_weekly_hours is not None:
-            model.Add(sum(all_vars) >= teacher.min_weekly_hours)
+            remaining = teacher.min_weekly_hours - locked_hours
+            if remaining > 0 and all_vars:
+                model.Add(sum(all_vars) >= remaining)
+            # 如果 remaining <= 0，说明已锁定的课时已满足下限要求
 
 
 def add_teacher_class_daily_limit_constraint(model, schedule_vars, teacher_assignments, max_per_class=2):

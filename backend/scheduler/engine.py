@@ -97,12 +97,16 @@ class ScheduleEngine:
         self.user_locks = {}
         # 锁定计数: {(class_id, subject_id): count}
         self.user_lock_counts = defaultdict(int)
+        # 教师锁定计数: {teacher_id: count}
+        self.teacher_lock_counts = defaultdict(int)
         for lock in ScheduleLock.objects.select_related('teacher').all():
             self.user_locks[(lock.school_class_id, lock.day, lock.period)] = {
                 'subject_id': lock.subject_id,
                 'teacher_id': lock.teacher_id,
             }
             self.user_lock_counts[(lock.school_class_id, lock.subject_id)] += 1
+            if lock.teacher_id:
+                self.teacher_lock_counts[lock.teacher_id] += 1
 
     def auto_assign_teachers(self):
         """自动分配教师到班级-课程 (跳过班会和校本课程)"""
@@ -149,6 +153,7 @@ class ScheduleEngine:
         teacher_class_subjects = defaultdict(lambda: defaultdict(set))  # teacher_id -> class_id -> {subject_ids}
 
         # 先把手动分配的课时和主课记录计入
+        # 注意：锁定的课时是手动分配课程的一部分，不需要单独计算
         for (class_id, subject_id), teacher_id in self.class_subject_teacher.items():
             subject = self.subjects[subject_id]
             teacher_load[teacher_id] += subject.weekly_hours
@@ -624,10 +629,11 @@ class ScheduleEngine:
             forbidden_pairs=forbidden_pairs
         )
 
-        # H10: 教师周课时上限
+        # H10: 教师周课时上限 (扣除已锁定的课时)
         add_teacher_max_hours_constraint(
             self.model, self.schedule_vars,
-            self.teacher_assignments, self.teachers
+            self.teacher_assignments, self.teachers,
+            teacher_lock_counts=self.teacher_lock_counts
         )
 
         # H11: 教师同班单日上限
