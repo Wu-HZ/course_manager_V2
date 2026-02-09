@@ -28,7 +28,8 @@
       "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: 自动排课系统\n\n包含校本课程重构：\n- 移除CombinedClassGroup模型\n- 改用TeacherQualification记录校本课程教师资质\n- 自动分配4位教师并生成轮换表\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(cmd.exe /c \"cd /d D:\\\\Programs\\\\Course_Manager\\\\course_manager && git add -A && git commit -m \"\"feat: 课表查看页面显示周课时统计\n\n显示格式：周课时28（普通课程23+校本课程4+班会课1）\n- 班会课：周五第4节\n- 校本课程：teacher为null的条目\n- 普通课程：其余条目\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\"\"\")"
+      "Bash(cmd.exe /c \"cd /d D:\\\\Programs\\\\Course_Manager\\\\course_manager && git add -A && git commit -m \"\"feat: 课表查看页面显示周课时统计\n\n显示格式：周课时28（普通课程23+校本课程4+班会课1）\n- 班会课：周五第4节\n- 校本课程：teacher为null的条目\n- 普通课程：其余条目\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\"\"\")",
+      "Bash(cmd.exe /c \"cd /d D:\\\\Programs\\\\Course_Manager\\\\course_manager && git add -A && git commit -m \"\"refactor: 课表查看页面显示所有课表\n\n- 移除班级/教师下拉选择框\n- 所有课表从上往下垂直排列显示\n- 保留按班级/按教师切换\n- 并行加载所有课表数据\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\"\"\")"
     ]
   }
 }

@@ -15,42 +15,35 @@
           </el-select>
         </el-form-item>
         <el-form-item label="查看方式">
-          <el-radio-group v-model="viewType" @change="loadTimetable">
+          <el-radio-group v-model="viewType" @change="loadAllTimetables">
             <el-radio-button value="class">按班级</el-radio-button>
             <el-radio-button value="teacher">按教师</el-radio-button>
           </el-radio-group>
         </el-form-item>
-        <el-form-item :label="viewType === 'class' ? '班级' : '教师'">
-          <el-select v-model="selectedTarget" placeholder="请选择" @change="loadTimetable">
-            <el-option
-              v-for="t in targets"
-              :key="t.id"
-              :label="t.name"
-              :value="t.id"
-            />
-          </el-select>
-        </el-form-item>
       </el-form>
     </el-card>
 
-    <el-card v-if="entries.length" class="timetable-card">
-      <template #header>
-        <div class="timetable-header">
-          <span>{{ currentTargetName }} 课表</span>
-          <span class="weekly-hours">
-            周课时 {{ weeklyHoursStats.total }}
-            （普通课程 {{ weeklyHoursStats.normal }} + 校本课程 {{ weeklyHoursStats.combined }} + 班会课 {{ weeklyHoursStats.meeting }}）
-          </span>
-        </div>
-      </template>
-      <TimetableGrid
-        :entries="entries"
-        :show-teacher="viewType === 'class'"
-        :show-class="viewType === 'teacher'"
-      />
-    </el-card>
+    <!-- 所有课表 -->
+    <template v-if="allTimetables.length">
+      <el-card v-for="item in allTimetables" :key="item.id" class="timetable-card">
+        <template #header>
+          <div class="timetable-header">
+            <span>{{ item.name }} 课表</span>
+            <span class="weekly-hours">
+              周课时 {{ item.stats.total }}
+              （普通课程 {{ item.stats.normal }} + 校本课程 {{ item.stats.combined }} + 班会课 {{ item.stats.meeting }}）
+            </span>
+          </div>
+        </template>
+        <TimetableGrid
+          :entries="item.entries"
+          :show-teacher="viewType === 'class'"
+          :show-class="viewType === 'teacher'"
+        />
+      </el-card>
+    </template>
 
-    <el-empty v-else-if="selectedResult && selectedTarget" description="暂无数据" />
+    <el-empty v-else-if="selectedResult" description="暂无数据" />
 
     <!-- 校本课程分组分配表 -->
     <el-card v-if="combinedAssignments && Object.keys(combinedAssignments).length" class="combined-card">
@@ -71,7 +64,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import TimetableGrid from '../components/TimetableGrid.vue'
 import { getScheduleResults, getClassTimetable, getTeacherTimetable } from '../api/scheduler'
 import { getClasses } from '../api/classes'
@@ -82,15 +75,10 @@ const classes = ref([])
 const teachers = ref([])
 const selectedResult = ref(null)
 const viewType = ref('class')
-const selectedTarget = ref(null)
-const entries = ref([])
+const allTimetables = ref([])
 const combinedAssignments = ref({})
 
 const targets = computed(() => viewType.value === 'class' ? classes.value : teachers.value)
-const currentTargetName = computed(() => {
-  const list = viewType.value === 'class' ? classes.value : teachers.value
-  return list.find(t => t.id === selectedTarget.value)?.name || ''
-})
 
 // 转换为表格数据格式
 const combinedAssignmentsList = computed(() => {
@@ -101,13 +89,13 @@ const combinedAssignmentsList = computed(() => {
   }))
 })
 
-// 计算周课时统计
-const weeklyHoursStats = computed(() => {
-  const total = entries.value.length
-  let meeting = 0    // 班会课：周五第4节 (day=4, period=3)
-  let combined = 0   // 校本课程：teacher为null的条目
+// 计算单个课表的周课时统计
+const calcStats = (entries) => {
+  const total = entries.length
+  let meeting = 0
+  let combined = 0
 
-  for (const e of entries.value) {
+  for (const e of entries) {
     if (e.day === 4 && e.period === 3) {
       meeting++
     } else if (e.teacher === null || e.teacher_name === null) {
@@ -116,9 +104,8 @@ const weeklyHoursStats = computed(() => {
   }
 
   const normal = total - meeting - combined
-
   return { total, normal, combined, meeting }
-})
+}
 
 const loadData = async () => {
   [results.value, classes.value, teachers.value] = await Promise.all([
@@ -136,43 +123,47 @@ const loadData = async () => {
 }
 
 const onResultChange = () => {
-  // 更新校本课程分配数据
   const result = results.value.find(r => r.id === selectedResult.value)
   combinedAssignments.value = result?.combined_class_assignments || {}
-  loadTimetable()
+  loadAllTimetables()
 }
 
-const loadTimetable = async () => {
-  if (!selectedResult.value || !selectedTarget.value) {
-    entries.value = []
+const loadAllTimetables = async () => {
+  if (!selectedResult.value) {
+    allTimetables.value = []
     return
   }
-  try {
-    if (viewType.value === 'class') {
-      entries.value = await getClassTimetable(selectedResult.value, selectedTarget.value)
-    } else {
-      entries.value = await getTeacherTimetable(selectedResult.value, selectedTarget.value)
+
+  const targetList = targets.value
+  const fetchFn = viewType.value === 'class' ? getClassTimetable : getTeacherTimetable
+
+  // 并行加载所有课表
+  const promises = targetList.map(async (t) => {
+    try {
+      const entries = await fetchFn(selectedResult.value, t.id)
+      return {
+        id: t.id,
+        name: t.name,
+        entries,
+        stats: calcStats(entries)
+      }
+    } catch (e) {
+      return {
+        id: t.id,
+        name: t.name,
+        entries: [],
+        stats: { total: 0, normal: 0, combined: 0, meeting: 0 }
+      }
     }
-  } catch (e) {
-    entries.value = []
-  }
+  })
+
+  allTimetables.value = await Promise.all(promises)
 }
-
-watch(viewType, () => {
-  selectedTarget.value = targets.value[0]?.id || null
-})
-
-watch(targets, (newTargets) => {
-  if (newTargets.length && !selectedTarget.value) {
-    selectedTarget.value = newTargets[0].id
-  }
-}, { immediate: true })
 
 onMounted(async () => {
   await loadData()
-  if (targets.value.length) {
-    selectedTarget.value = targets.value[0].id
-    loadTimetable()
+  if (selectedResult.value) {
+    loadAllTimetables()
   }
 })
 </script>
