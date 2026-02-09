@@ -418,7 +418,7 @@ class ScheduleEngine:
         1. 使用手动指定的教师（Teacher.combined_class_group）
         2. 排除标记为"不参与"的教师（Teacher.exclude_from_combined）
         3. 将未指定的教师随机分配到需要更多人的组
-        4. 每个分组内的教师再分为周二和周四两组
+        4. 全局平衡周二和周四的教师人数
 
         Returns:
             dict: {
@@ -473,32 +473,45 @@ class ScheduleEngine:
             if not group_teachers[g.id]:
                 self.errors.append(f"校本课程分组 '{g.name}' 没有可用教师")
 
-        # 5. 每个分组内的教师再分为周二和周四
-        result = {}
+        # 5. 全局分配周二/周四，确保人数平衡
+        # 先收集所有教师及其分组和可用日期
+        all_teachers_info = []  # [(tid, group_id, can_tuesday, can_thursday)]
         for group_id, teacher_ids in group_teachers.items():
-            tuesday_list = []
-            thursday_list = []
-
             for tid in teacher_ids:
                 day_off = self.teacher_day_off.get(tid)
                 can_tuesday = (day_off != 1)
                 can_thursday = (day_off != 3)
+                all_teachers_info.append((tid, group_id, can_tuesday, can_thursday))
 
-                if can_tuesday and not can_thursday:
-                    tuesday_list.append(tid)
-                elif can_thursday and not can_tuesday:
-                    thursday_list.append(tid)
-                else:
-                    # 可以去任意组，分到人少的组
-                    if len(tuesday_list) <= len(thursday_list):
-                        tuesday_list.append(tid)
-                    else:
-                        thursday_list.append(tid)
+        # 初始化结果
+        result = {g.id: {"tuesday": [], "thursday": []} for g in groups}
 
-            result[group_id] = {
-                "tuesday": tuesday_list,
-                "thursday": thursday_list
-            }
+        # 全局计数
+        total_tuesday = 0
+        total_thursday = 0
+
+        # 先分配只能去一个日期的教师
+        flexible = []
+        for tid, group_id, can_tuesday, can_thursday in all_teachers_info:
+            if can_tuesday and not can_thursday:
+                result[group_id]["tuesday"].append(tid)
+                total_tuesday += 1
+            elif can_thursday and not can_tuesday:
+                result[group_id]["thursday"].append(tid)
+                total_thursday += 1
+            elif can_tuesday and can_thursday:
+                flexible.append((tid, group_id))
+            # 两个都不能去的情况不应该发生
+
+        # 随机打乱灵活教师，然后全局平衡分配
+        random.shuffle(flexible)
+        for tid, group_id in flexible:
+            if total_tuesday <= total_thursday:
+                result[group_id]["tuesday"].append(tid)
+                total_tuesday += 1
+            else:
+                result[group_id]["thursday"].append(tid)
+                total_thursday += 1
 
         return result
 
