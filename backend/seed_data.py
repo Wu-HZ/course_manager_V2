@@ -23,7 +23,7 @@ Subject.objects.all().delete()
 TravelGroup.objects.all().delete()
 Location.objects.all().delete()
 
-print("创建出差分组...")
+print("创建送教分组...")
 group_wed = TravelGroup.objects.create(name='周三组', day_off=2)
 group_fri = TravelGroup.objects.create(name='周五组', day_off=4)
 
@@ -113,7 +113,7 @@ ClassSubjectTeacher.objects.create(
 )
 
 print("\n测试数据创建完成!")
-print(f"- 出差分组: {TravelGroup.objects.count()}")
+print(f"- 送教分组: {TravelGroup.objects.count()}")
 print(f"- 场地: {Location.objects.count()}")
 print(f"- 课程: {Subject.objects.count()}")
 print(f"- 教师: {Teacher.objects.count()}")

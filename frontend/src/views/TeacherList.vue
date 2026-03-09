@@ -10,7 +10,7 @@
     <el-table :data="teachers" stripe border>
       <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="name" label="姓名" />
-      <el-table-column prop="travel_group_name" label="出差分组" />
+      <el-table-column prop="travel_group_name" label="送教分组" />
       <el-table-column label="校本课程" width="180">
         <template #default="{ row }">
           <el-tag v-if="row.exclude_from_combined" type="info">不参与</el-tag>
@@ -51,7 +51,7 @@
         <el-form-item label="姓名" required>
           <el-input v-model="form.name" />
         </el-form-item>
-        <el-form-item label="出差分组">
+        <el-form-item label="送教分组">
           <el-select v-model="form.travel_group" clearable placeholder="请选择">
             <el-option
               v-for="g in travelGroups"

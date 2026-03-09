@@ -18,12 +18,12 @@ LOCATION_TYPES = [
 
 
 class TravelGroup(models.Model):
-    """出差分组 - 关联一个禁排日"""
+    """送教分组 - 关联一个禁排日"""
     name = models.CharField('分组名称', max_length=50)
     day_off = models.IntegerField('禁排日', choices=DAY_CHOICES)
 
     class Meta:
-        verbose_name = '出差分组'
+        verbose_name = '送教分组'
         verbose_name_plural = verbose_name
 
     def __str__(self):
@@ -99,7 +99,7 @@ class Teacher(models.Model):
     name = models.CharField('姓名', max_length=50)
     travel_group = models.ForeignKey(
         TravelGroup, on_delete=models.SET_NULL,
-        null=True, blank=True, verbose_name='出差分组'
+        null=True, blank=True, verbose_name='送教分组'
     )
     combined_class_group = models.ForeignKey(
         CombinedClassGroup, on_delete=models.SET_NULL,

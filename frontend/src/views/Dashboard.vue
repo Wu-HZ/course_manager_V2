@@ -60,7 +60,7 @@
       </el-space>
       <div class="io-tips">
         <el-text type="info" size="small">
-          导出包含：出差分组、校本课程分组、场地、课程、教师、班级、教师资质、授课分配
+          导出包含：送教分组、校本课程分组、场地、课程、教师、班级、教师资质、授课分配
         </el-text>
       </div>
     </el-card>

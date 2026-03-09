@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <div class="page-header">
-      <h2>出差分组管理</h2>
+      <h2>送教分组管理</h2>
       <el-button type="primary" @click="showDialog()">
         <el-icon><Plus /></el-icon> 添加分组
       </el-button>

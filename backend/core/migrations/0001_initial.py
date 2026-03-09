@@ -167,8 +167,8 @@ class Migration(migrations.Migration):
                 ),
             ],
             options={
-                "verbose_name": "出差分组",
-                "verbose_name_plural": "出差分组",
+                "verbose_name": "送教分组",
+                "verbose_name_plural": "送教分组",
             },
         ),
         migrations.CreateModel(
@@ -245,7 +245,7 @@ class Migration(migrations.Migration):
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
                         to="core.travelgroup",
-                        verbose_name="出差分组",
+                        verbose_name="送教分组",
                     ),
                 ),
             ],
