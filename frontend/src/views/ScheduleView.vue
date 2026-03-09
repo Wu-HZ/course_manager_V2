@@ -79,6 +79,28 @@
         </el-table-column>
       </el-table>
     </el-card>
+
+    <!-- 送教分组表 -->
+    <el-card v-if="travelGroupList.length" class="combined-card">
+      <template #header>
+        <span>送教分组</span>
+      </template>
+      <el-table :data="travelGroupList" stripe border>
+        <el-table-column prop="name" label="分组" width="120" />
+        <el-table-column prop="dayOffDisplay" label="禁排日" width="100" />
+        <el-table-column label="教师">
+          <template #default="{ row }">
+            <el-tag v-for="t in row.teachers" :key="t" style="margin-right: 5px;">{{ t }}</el-tag>
+            <span v-if="!row.teachers.length" style="color: #909399">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="人数" width="80" align="center">
+          <template #default="{ row }">
+            {{ row.teachers.length }}
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
   </div>
 </template>
 
@@ -93,6 +115,7 @@ import TimetableGrid from '../components/TimetableGrid.vue'
 import { getScheduleResults, getClassTimetable, getTeacherTimetable } from '../api/scheduler'
 import { getClasses } from '../api/classes'
 import { getTeachers } from '../api/teachers'
+import { getTravelGroups } from '../api/resources'
 
 // 注册 ECharts 组件
 use([CanvasRenderer, BarChart, GridComponent, TooltipComponent, LegendComponent])
@@ -104,6 +127,7 @@ const selectedResult = ref(null)
 const viewType = ref('class')
 const allTimetables = ref([])
 const combinedAssignments = ref({})
+const travelGroups = ref([])
 
 const targets = computed(() => viewType.value === 'class' ? classes.value : teachers.value)
 
@@ -203,6 +227,24 @@ const combinedAssignmentsList = computed(() => {
   })
 })
 
+// 送教分组表格数据
+const travelGroupList = computed(() => {
+  const teachersByGroup = {}
+  for (const t of teachers.value) {
+    if (t.travel_group) {
+      if (!teachersByGroup[t.travel_group]) {
+        teachersByGroup[t.travel_group] = []
+      }
+      teachersByGroup[t.travel_group].push(t.name)
+    }
+  }
+  return travelGroups.value.map(g => ({
+    name: g.name,
+    dayOffDisplay: g.day_off_display,
+    teachers: teachersByGroup[g.id] || []
+  }))
+})
+
 // 计算单个课表的周课时统计
 const calcStats = (entries) => {
   const total = entries.length
@@ -227,8 +269,8 @@ const calcStats = (entries) => {
 }
 
 const loadData = async () => {
-  [results.value, classes.value, teachers.value] = await Promise.all([
-    getScheduleResults(), getClasses(), getTeachers()
+  [results.value, classes.value, teachers.value, travelGroups.value] = await Promise.all([
+    getScheduleResults(), getClasses(), getTeachers(), getTravelGroups()
   ])
   // 自动选择最新激活的结果
   const active = results.value.find(r => r.is_active)
