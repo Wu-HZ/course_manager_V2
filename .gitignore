@@ -36,5 +36,8 @@ nul
 .env
 .env.local
 
+# Portable build
+portable_build/
+
 # Claude Code
 .claude/settings.local.json
