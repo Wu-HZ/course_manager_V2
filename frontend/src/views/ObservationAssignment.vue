@@ -14,6 +14,10 @@
             />
           </el-select>
         </el-form-item>
+        <el-form-item label="同一教师最多听">
+          <el-input-number v-model="maxPerTarget" :min="1" :max="6" :step="1" style="width: 100px;" />
+          <span style="margin-left: 4px;">次</span>
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="generating" :disabled="!selectedResult" @click="generate">
             生成
@@ -85,6 +89,7 @@ const results = ref([])
 const teachers = ref([])
 const travelGroups = ref([])
 const selectedResult = ref(null)
+const maxPerTarget = ref(2)
 const assignments = ref([])
 const warnings = ref([])
 const generating = ref(false)
@@ -243,12 +248,16 @@ const generate = async () => {
       shuffle(candidates)
       const picked = []
       const usedSlots = new Set()  // "week-day-period"
+      const targetCount = {}       // targetId → count
 
       for (const c of candidates) {
         if (picked.length >= REQUIRED_COUNT) break
         const slotKey = `${c.week}-${c.day}-${c.period}`
         if (usedSlots.has(slotKey)) continue
+        const cnt = targetCount[c.targetId] || 0
+        if (cnt >= maxPerTarget.value) continue
         usedSlots.add(slotKey)
+        targetCount[c.targetId] = cnt + 1
         picked.push(c)
       }
 
