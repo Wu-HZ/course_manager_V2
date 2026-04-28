@@ -7,8 +7,9 @@ from rest_framework.decorators import api_view, action
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from core.models import (
-    ClassSubjectTeacher, Location, ScheduleLock, SchedulerSettings,
-    SchoolClass, Subject, Teacher, TeacherBlockedTime, TeacherQualification
+    ClassSubjectTeacher, CombinedClassGroup, Location, ScheduleLock, SchedulerSettings,
+    SchoolClass, Subject, Teacher, TeacherBlockedTime, TeacherQualification,
+    TravelGroup
 )
 from .models import ScheduleResult, ScheduleEntry
 from .serializers import (
@@ -105,6 +106,8 @@ def _build_precheck_payload():
     classes = list(SchoolClass.objects.all())
     subjects = list(Subject.objects.all())
     locations = list(Location.objects.all())
+    travel_groups = list(TravelGroup.objects.all())
+    combined_groups = list(CombinedClassGroup.objects.all())
     assignments = list(
         ClassSubjectTeacher.objects.select_related('school_class', 'subject', 'teacher').all()
     )
@@ -128,6 +131,7 @@ def _build_precheck_payload():
         subject for subject in regular_subjects
         if any(subject.is_applicable_for_grade(school_class.grade) for school_class in classes)
     ]
+    combined_subject = next((subject for subject in subjects if subject.is_combined_class), None)
 
     qualification_map = defaultdict(set)
     for qualification in qualifications:
@@ -246,6 +250,13 @@ def _build_precheck_payload():
             f"以下课程还没有配置教师资质：{_preview_names([subject.name for subject in subjects_without_qualification])}。系统无法为这些课程自动分配教师。",
             _make_actions(('去教师资质', '/qualifications')),
         ))
+    if combined_subject and len(combined_groups) < 4:
+        blocking_issues.append(_make_issue(
+            'missing_combined_groups',
+            '校本课程分组不足 4 组',
+            f'当前校本课程使用“{combined_subject.name}”，但校本课程分组只有 {len(combined_groups)} 组。按当前实现至少需要 4 组。',
+            _make_actions(('去校本课程分组', '/combined-groups')),
+        ))
     if invalid_assignments:
         blocking_issues.append(_make_issue(
             'invalid_assignments',
@@ -339,6 +350,62 @@ def _build_precheck_payload():
         location_step_detail,
         _make_actions(('去场地管理', '/locations')),
     ))
+    if not teachers:
+        travel_groups_step_status = 'pending'
+        travel_groups_step_detail = '请先录入教师，再按需要为跨校或送教教师配置整天禁排日。'
+    elif not travel_groups:
+        travel_groups_step_status = 'warning'
+        travel_groups_step_detail = '当前还没有送教分组；只有存在跨校或送教教师时才需要设置。'
+    else:
+        travel_group_teacher_count = sum(1 for teacher in teachers if teacher.travel_group_id)
+        travel_groups_step_status = 'completed'
+        travel_groups_step_detail = f"已配置 {len(travel_groups)} 个送教分组，当前有 {travel_group_teacher_count} 位教师已绑定分组。"
+    steps.append(_make_step(
+        'travel_groups',
+        '送教分组',
+        '为需要整天避开某个工作日的送教教师建立分组；教师绑定分组后，该禁排日会直接进入排课约束。',
+        travel_groups_step_status,
+        travel_groups_step_detail,
+        _make_actions(('去送教分组', '/travel-groups')),
+    ))
+    if not teachers:
+        blocked_times_step_status = 'pending'
+        blocked_times_step_detail = '请先录入教师，再按教师设置某天上午、下午或全天不可排。'
+    elif blocked_times_count == 0:
+        blocked_times_step_status = 'warning'
+        blocked_times_step_detail = '当前还没有教师禁排；只有教师存在明确不可排时段时才需要补充。'
+    else:
+        blocked_times_step_status = 'completed'
+        blocked_times_step_detail = f"已设置 {blocked_times_count} 条教师禁排。"
+    steps.append(_make_step(
+        'blocked_times',
+        '教师禁排',
+        '为单个教师设置某天上午、下午或全天不可排；只在确有固定不可排时段时使用。',
+        blocked_times_step_status,
+        blocked_times_step_detail,
+        _make_actions(('去教师禁排', '/blocked-times')),
+    ))
+    if not subjects:
+        combined_groups_step_status = 'pending'
+        combined_groups_step_detail = '请先录入课程，再判断是否存在校本课程或合班课需要分组。'
+    elif not combined_subject:
+        combined_groups_step_status = 'completed'
+        combined_groups_step_detail = '当前没有标记为校本课程/合班课的课程，无需配置校本课程分组。'
+    elif len(combined_groups) < 4:
+        combined_groups_step_status = 'blocked'
+        combined_groups_step_detail = f'当前只有 {len(combined_groups)} 个分组；按当前实现，校本课程至少需要 4 组。'
+    else:
+        combined_group_teacher_count = sum(1 for teacher in teachers if teacher.combined_class_group_id and not teacher.exclude_from_combined)
+        combined_groups_step_status = 'completed'
+        combined_groups_step_detail = f"已配置 {len(combined_groups)} 个校本课程分组，当前有 {combined_group_teacher_count} 位教师手动绑定到分组。"
+    steps.append(_make_step(
+        'combined_groups',
+        '校本课程分组',
+        '仅在存在校本课程/合班课时使用；当前实现要求先建立至少 4 个分组，再由教师手动绑定或系统自动补分组。',
+        combined_groups_step_status,
+        combined_groups_step_detail,
+        _make_actions(('去校本课程分组', '/combined-groups')),
+    ))
 
     if not subjects or not classes:
         qualification_step_status = 'pending'
@@ -383,23 +450,6 @@ def _build_precheck_payload():
         assignment_step_status,
         assignment_step_detail,
         _make_actions(('去授课分配', '/assignments')),
-    ))
-    if not teachers:
-        blocked_times_step_status = 'pending'
-        blocked_times_step_detail = '请先录入教师，再按教师设置某天上午、下午或全天不可排。'
-    elif blocked_times_count == 0:
-        blocked_times_step_status = 'warning'
-        blocked_times_step_detail = '当前还没有教师禁排；只有教师存在明确不可排时段时才需要补充。'
-    else:
-        blocked_times_step_status = 'completed'
-        blocked_times_step_detail = f"已设置 {blocked_times_count} 条教师禁排。"
-    steps.append(_make_step(
-        'blocked_times',
-        '教师禁排',
-        '为单个教师设置某天上午、下午或全天不可排；只在确有固定不可排时段时使用。',
-        blocked_times_step_status,
-        blocked_times_step_detail,
-        _make_actions(('去教师禁排', '/blocked-times')),
     ))
     if not classes or not subjects:
         locks_step_status = 'pending'

@@ -5,7 +5,7 @@
         <div>
           <div class="card-title">本学期排课准备</div>
           <div class="card-subtitle">
-            下面每一步都对应一个独立入口或独立动作，不再把多个设置项合并到同一个步骤里。
+            数据管理部分按左侧侧边栏顺序展示；下面每一步都对应一个独立入口或独立动作，不再合并多个设置项。
           </div>
         </div>
         <div class="header-tags">
