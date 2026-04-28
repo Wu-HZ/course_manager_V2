@@ -5,7 +5,7 @@
         <div>
           <div class="card-title">本学期排课准备</div>
           <div class="card-subtitle">
-            流程卡按当前实现拆分：先补齐教师、班级、课程/场地、资质与授课分配，再按需要补教师禁排或班级课程锁定，最后试排。
+            下面每一步都对应一个独立入口或独立动作，不再把多个设置项合并到同一个步骤里。
           </div>
         </div>
         <div class="header-tags">

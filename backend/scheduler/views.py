@@ -188,6 +188,12 @@ def _build_precheck_payload():
         if subject.location_type != 'NORMAL' and location_capacity.get(subject.location_type, 0) <= 0
     })
     missing_location_labels = [location_labels.get(code, code) for code in missing_location_types]
+    required_location_types = sorted({
+        subject.location_type
+        for subject in required_subjects
+        if subject.location_type != 'NORMAL'
+    })
+    required_location_labels = [location_labels.get(code, code) for code in required_location_types]
 
     lock_counts = Counter((lock.school_class_id, lock.subject_id) for lock in locks)
     lock_overflows = []
@@ -304,26 +310,34 @@ def _build_precheck_payload():
         f"已录入 {len(classes)} 个班级，可继续核对班主任和适用课程。" if classes else '请先录入班级；没有班级就无法生成班级课表。',
         _make_actions(('去班级管理', '/classes')),
     ))
-
-    if not subjects:
-        course_step_status = 'pending'
-        course_step_detail = '请先录入课程信息。'
-    elif missing_location_labels:
-        course_step_status = 'blocked'
-        course_step_detail = f"以下专用场地类型还没有容量：{_preview_names(missing_location_labels)}。"
-    elif locations:
-        course_step_status = 'completed'
-        course_step_detail = f"已录入 {len(subjects)} 门课程，已配置 {len(locations)} 个场地；专用场地课程会受容量约束。"
-    else:
-        course_step_status = 'completed'
-        course_step_detail = f"已录入 {len(subjects)} 门课程；当前待排课程都可使用普通教室。"
     steps.append(_make_step(
-        'subjects_locations',
-        '课程与场地',
-        '录入课程周课时、适用年级、课程属性，并为专用场地课程配置容量。',
-        course_step_status,
-        course_step_detail,
-        _make_actions(('去课程管理', '/subjects'), ('去场地管理', '/locations')),
+        'subjects',
+        '课程管理',
+        '录入课程周课时、适用年级和课程属性；普通课程、校本课程和班会课都从这里定义。',
+        'completed' if subjects else 'pending',
+        f"已录入 {len(subjects)} 门课程，可继续核对周课时、适用年级和课程属性。" if subjects else '请先录入课程；没有课程就无法计算每班周课时。',
+        _make_actions(('去课程管理', '/subjects')),
+    ))
+
+    if not subjects or not classes:
+        location_step_status = 'pending'
+        location_step_detail = '请先补齐班级和课程，再判断是否需要为专用场地课程配置容量。'
+    elif missing_location_labels:
+        location_step_status = 'blocked'
+        location_step_detail = f"以下专用场地类型还没有容量：{_preview_names(missing_location_labels)}。"
+    elif required_location_labels:
+        location_step_status = 'completed'
+        location_step_detail = f"专用场地容量已覆盖：{_preview_names(required_location_labels)}。"
+    else:
+        location_step_status = 'completed'
+        location_step_detail = '当前待排课程都可使用普通教室，无需额外场地容量。'
+    steps.append(_make_step(
+        'locations',
+        '场地管理',
+        '仅在课程需要操场、实验室、家政室等专用场地时配置容量；普通教室不需要单独配置。',
+        location_step_status,
+        location_step_detail,
+        _make_actions(('去场地管理', '/locations')),
     ))
 
     if not subjects or not classes:
@@ -370,29 +384,51 @@ def _build_precheck_payload():
         assignment_step_detail,
         _make_actions(('去授课分配', '/assignments')),
     ))
-
-    if blocked_times_count == 0 and len(locks) == 0:
-        constraint_step_status = 'warning'
-        constraint_step_detail = '这两项都不是必填；只有存在明确不可排时段，或需要把某个班级课程固定到具体时段时才需要补充。'
+    if not teachers:
+        blocked_times_step_status = 'pending'
+        blocked_times_step_detail = '请先录入教师，再按教师设置某天上午、下午或全天不可排。'
+    elif blocked_times_count == 0:
+        blocked_times_step_status = 'warning'
+        blocked_times_step_detail = '当前还没有教师禁排；只有教师存在明确不可排时段时才需要补充。'
     else:
-        constraint_step_status = 'completed'
-        constraint_step_detail = f"已设置 {blocked_times_count} 条教师禁排，{len(locks)} 条班级课程锁定。"
+        blocked_times_step_status = 'completed'
+        blocked_times_step_detail = f"已设置 {blocked_times_count} 条教师禁排。"
     steps.append(_make_step(
-        'constraints',
-        '教师禁排与班级课程锁定',
-        '教师禁排控制教师某天上/下午或全天不可排；课表锁定用于把已分配的班级课程固定到具体时段。',
-        constraint_step_status,
-        constraint_step_detail,
-        _make_actions(('去教师禁排', '/blocked-times'), ('去课表锁定', '/schedule-locks')),
+        'blocked_times',
+        '教师禁排',
+        '为单个教师设置某天上午、下午或全天不可排；只在确有固定不可排时段时使用。',
+        blocked_times_step_status,
+        blocked_times_step_detail,
+        _make_actions(('去教师禁排', '/blocked-times')),
+    ))
+    if not classes or not subjects:
+        locks_step_status = 'pending'
+        locks_step_detail = '请先补齐班级和课程，再决定是否需要锁定具体时段。'
+    elif manual_assignment_count == 0:
+        locks_step_status = 'pending'
+        locks_step_detail = '先在“授课分配”中手动指定至少一部分班级课程，课表锁定页才会出现可锁定项目。'
+    elif len(locks) == 0:
+        locks_step_status = 'warning'
+        locks_step_detail = '当前还没有班级课程锁定；只有需要把已分配课程固定到具体时段时才需要设置。'
+    else:
+        locks_step_status = 'completed'
+        locks_step_detail = f"已设置 {len(locks)} 条班级课程锁定。"
+    steps.append(_make_step(
+        'locks',
+        '课表锁定',
+        '把某个班里已手动分配教师的课程固定到具体时段；不是给教师整天空位上锁。',
+        locks_step_status,
+        locks_step_detail,
+        _make_actions(('去课表锁定', '/schedule-locks')),
     ))
 
     if successful_results_count > 0:
         run_step_status = 'completed'
-        run_step_detail = f"已存在 {successful_results_count} 个可用排课结果，可继续试排或查看历史结果。"
-        run_actions = _make_actions(('查看课表', '/schedule-view'), ('去执行排课', '/schedule-run'))
+        run_step_detail = f"已执行过试排，当前已有 {successful_results_count} 个可用排课结果。"
+        run_actions = _make_actions(('去执行排课', '/schedule-run'))
     elif can_run:
         run_step_status = 'ready'
-        run_step_detail = '阻塞项已清除，可以先执行一次试排，再到课表查看中核对结果。'
+        run_step_detail = '阻塞项已清除，可以开始执行一次试排。'
         run_actions = _make_actions(('去执行排课', '/schedule-run'))
     else:
         run_step_status = 'blocked'
@@ -400,11 +436,28 @@ def _build_precheck_payload():
         run_actions = _make_actions(('查看排课检查', '/schedule-run'))
     steps.append(_make_step(
         'run',
-        '试排与结果查看',
-        '先运行一次试排，再到课表查看核对班级表、教师表、校本课程分组和导出结果。',
+        '执行排课',
+        '按本次运行参数发起一次求解，生成新的排课结果。',
         run_step_status,
         run_step_detail,
         run_actions,
+    ))
+    if successful_results_count > 0:
+        schedule_view_step_status = 'completed'
+        schedule_view_step_detail = f"已有 {successful_results_count} 个可用结果，可按班级或教师查看并导出。"
+    elif can_run:
+        schedule_view_step_status = 'pending'
+        schedule_view_step_detail = '请先完成至少一次试排，再到课表查看中核对班级表、教师表和导出结果。'
+    else:
+        schedule_view_step_status = 'pending'
+        schedule_view_step_detail = '先处理前置阻塞项并完成试排，之后才能查看课表结果。'
+    steps.append(_make_step(
+        'schedule_view',
+        '课表查看',
+        '按班级或教师查看排课结果，并导出 Excel / JSON。',
+        schedule_view_step_status,
+        schedule_view_step_detail,
+        _make_actions(('去课表查看', '/schedule-view')),
     ))
 
     passed_checks = []
