@@ -11,7 +11,8 @@ from rest_framework.response import Response
 from .models import (
     TravelGroup, Subject, CombinedClassGroup, Teacher,
     SchoolClass, Location, ClassSubjectTeacher, TeacherQualification,
-    ScheduleLock, TeacherBlockedTime
+    ScheduleLock, TeacherBlockedTime, get_qualification_subject_queryset,
+    is_subject_qualification_managed
 )
 
 
@@ -128,7 +129,11 @@ def export_data(request):
         style_header(ws)
 
         # 获取数据
-        for obj in model.objects.all():
+        queryset = model.objects.all()
+        if model == TeacherQualification:
+            queryset = queryset.filter(subject__in=get_qualification_subject_queryset())
+
+        for obj in queryset:
             row = []
             for field in fields:
                 if '__' in field:
@@ -249,6 +254,8 @@ def import_data(request):
 
                 # 根据名称查找或创建
                 if model == TeacherQualification:
+                    if not is_subject_qualification_managed(data.get('subject')):
+                        continue
                     # 资质表用组合键查找
                     obj, is_created = model.objects.get_or_create(
                         teacher=data.get('teacher'),

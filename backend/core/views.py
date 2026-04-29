@@ -5,7 +5,8 @@ from .models import (
     TravelGroup, Subject, CombinedClassGroup, Teacher,
     SchoolClass, Location, ClassSubjectTeacher,
     TeacherQualification, ScheduleLock, SchedulerSettings,
-    TeacherBlockedTime
+    TeacherBlockedTime, get_qualification_subject_queryset,
+    is_subject_qualification_managed
 )
 from .serializers import (
     TravelGroupSerializer, SubjectSerializer, CombinedClassGroupSerializer,
@@ -57,8 +58,12 @@ class ClassSubjectTeacherViewSet(viewsets.ModelViewSet):
 
 
 class TeacherQualificationViewSet(viewsets.ModelViewSet):
-    queryset = TeacherQualification.objects.select_related('teacher', 'subject').all()
     serializer_class = TeacherQualificationSerializer
+
+    def get_queryset(self):
+        return TeacherQualification.objects.select_related('teacher', 'subject').filter(
+            subject__in=get_qualification_subject_queryset()
+        )
 
 
 class TeacherBlockedTimeViewSet(viewsets.ModelViewSet):
@@ -69,6 +74,15 @@ class TeacherBlockedTimeViewSet(viewsets.ModelViewSet):
 @api_view(['GET'])
 def get_qualifications_by_subject(request, subject_id):
     """获取某门课程的所有合格教师ID列表"""
+    subject = Subject.objects.filter(pk=subject_id).first()
+    if not subject:
+        return Response({'detail': '课程不存在。'}, status=status.HTTP_404_NOT_FOUND)
+    if not is_subject_qualification_managed(subject):
+        return Response(
+            {'detail': '班会和校本课程不通过教师资质管理。'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
     teacher_ids = list(
         TeacherQualification.objects.filter(subject_id=subject_id)
         .values_list('teacher_id', flat=True)
@@ -79,6 +93,15 @@ def get_qualifications_by_subject(request, subject_id):
 @api_view(['POST'])
 def set_qualifications_for_subject(request, subject_id):
     """批量设置某门课程的合格教师"""
+    subject = Subject.objects.filter(pk=subject_id).first()
+    if not subject:
+        return Response({'detail': '课程不存在。'}, status=status.HTTP_404_NOT_FOUND)
+    if not is_subject_qualification_managed(subject):
+        return Response(
+            {'detail': '班会和校本课程不通过教师资质管理。'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
     teacher_ids = request.data.get('teacher_ids', [])
 
     # 删除该课程的所有现有资质

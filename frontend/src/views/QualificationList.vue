@@ -3,7 +3,7 @@
     <h2>教师资质管理</h2>
 
     <el-alert type="info" :closable="false" style="margin-bottom: 20px">
-      设置每门课程可以由哪些教师来教。选择课程后勾选对应的教师，系统排课时会从这些教师中自动分配。
+      这里只管理普通课程的可授课教师。校本课程由教师管理中的参与设置控制，班会由班级管理中的班主任控制。
     </el-alert>
 
     <el-card>
@@ -11,7 +11,7 @@
         <span class="subject-tabs-label">选择课程：</span>
         <el-radio-group v-model="selectedSubject" @change="loadQualifications">
           <el-radio-button
-            v-for="s in subjects"
+            v-for="s in qualificationSubjects"
             :key="s.id"
             :value="s.id"
           >
@@ -85,13 +85,20 @@ const teachers = ref([])
 const selectedSubject = ref(null)
 const selectedTeachers = ref([])
 const allQualifications = ref([])
+const classMeetingName = ref('班会')
 let saveTimeout = null
+
+const qualificationSubjects = computed(() => (
+  subjects.value.filter(subject => (
+    !subject.is_combined_class && subject.name !== classMeetingName.value
+  ))
+))
 
 const summary = computed(() => {
   const teacherMap = {}
   teachers.value.forEach(t => { teacherMap[t.id] = t.name })
 
-  return subjects.value.map(s => {
+  return qualificationSubjects.value.map(s => {
     const teacherIds = allQualifications.value
       .filter(q => q.subject === s.id)
       .map(q => q.teacher)
@@ -104,11 +111,21 @@ const summary = computed(() => {
 })
 
 const loadData = async () => {
-  [subjects.value, teachers.value, allQualifications.value] = await Promise.all([
+  const [subjectList, teacherList, qualificationList, settings] = await Promise.all([
     getSubjects(),
     getTeachers(),
-    api.get('/teacher-qualifications/')
+    api.get('/teacher-qualifications/'),
+    api.get('/scheduler-settings/'),
   ])
+  subjects.value = subjectList
+  teachers.value = teacherList
+  allQualifications.value = qualificationList
+  classMeetingName.value = settings.class_meeting_name || '班会'
+
+  if (!qualificationSubjects.value.some(subject => subject.id === selectedSubject.value)) {
+    selectedSubject.value = null
+    selectedTeachers.value = []
+  }
 }
 
 const loadQualifications = async () => {
@@ -121,6 +138,7 @@ const loadQualifications = async () => {
     selectedTeachers.value = res.teacher_ids || []
   } catch (e) {
     selectedTeachers.value = []
+    ElMessage.error(e.response?.data?.detail || '加载教师资质失败')
   }
 }
 
@@ -136,7 +154,7 @@ const saveQualifications = () => {
       allQualifications.value = await api.get('/teacher-qualifications/')
       ElMessage.success('已保存')
     } catch (e) {
-      ElMessage.error('保存失败')
+      ElMessage.error(e.response?.data?.detail || '保存失败')
     }
   }, 500)
 }

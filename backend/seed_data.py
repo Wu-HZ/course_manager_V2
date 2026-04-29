@@ -98,14 +98,6 @@ TeacherQualification.objects.create(teacher=teacher_liu, subject=music)
 # 美术: 孙老师 专职
 TeacherQualification.objects.create(teacher=teacher_sun, subject=art)
 
-# 校本课程: 需要至少4位教师，且禁排日不在周二/周四
-# 选择: 李老师、陈老师、刘老师、孙老师 (都没有周二/周四禁排)
-print("设置校本课程教师资质 (需要4位，禁排日不在周二/周四)...")
-TeacherQualification.objects.create(teacher=teacher_li, subject=combined_subject)
-TeacherQualification.objects.create(teacher=teacher_chen, subject=combined_subject)
-TeacherQualification.objects.create(teacher=teacher_liu, subject=combined_subject)
-TeacherQualification.objects.create(teacher=teacher_sun, subject=combined_subject)
-
 print("创建手动指定的授课分配 (示例: 一(3)班语文必须由张老师教)...")
 # 手动指定: 一(3)班语文 -> 张老师 (虽然陈老师也有资质，但指定张老师)
 ClassSubjectTeacher.objects.create(
@@ -120,15 +112,6 @@ print(f"- 教师: {Teacher.objects.count()}")
 print(f"- 班级: {SchoolClass.objects.count()}")
 print(f"- 教师资质: {TeacherQualification.objects.count()}")
 print(f"- 手动授课分配: {ClassSubjectTeacher.objects.filter(is_manual=True).count()}")
-
-print("\n校本课程教师资质:")
-combined_quals = TeacherQualification.objects.filter(subject=combined_subject).select_related('teacher')
-for q in combined_quals:
-    teacher = q.teacher
-    day_off_info = ""
-    if teacher.travel_group:
-        day_off_info = f" (禁排: {teacher.travel_group.get_day_off_display()})"
-    print(f"  {teacher.name}{day_off_info}")
 
 print("\n资质情况:")
 for q in TeacherQualification.objects.select_related('teacher', 'subject').order_by('subject__name', 'teacher__name'):

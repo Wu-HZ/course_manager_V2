@@ -355,3 +355,19 @@ class SchedulerSettings(models.Model):
             # 解析失败，返回默认值
             slots = [(1, 4), (1, 5), (3, 4), (3, 5)]
         return slots
+
+
+def get_qualification_subject_queryset():
+    """教师资质只管理普通课程，不包含班会和校本课程/合班课。"""
+    settings = SchedulerSettings.get_settings()
+    return Subject.objects.exclude(is_combined_class=True).exclude(
+        name=settings.class_meeting_name
+    )
+
+
+def is_subject_qualification_managed(subject):
+    """判断课程是否应出现在教师资质中。"""
+    if subject is None:
+        return False
+    settings = SchedulerSettings.get_settings()
+    return (not subject.is_combined_class) and subject.name != settings.class_meeting_name

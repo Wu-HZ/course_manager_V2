@@ -3,7 +3,7 @@ from .models import (
     TravelGroup, Subject, CombinedClassGroup, Teacher,
     SchoolClass, Location, ClassSubjectTeacher,
     TeacherQualification, ScheduleLock, SchedulerSettings,
-    TeacherBlockedTime
+    TeacherBlockedTime, is_subject_qualification_managed
 )
 
 
@@ -93,6 +93,11 @@ class ClassSubjectTeacherSerializer(serializers.ModelSerializer):
 class TeacherQualificationSerializer(serializers.ModelSerializer):
     teacher_name = serializers.CharField(source='teacher.name', read_only=True)
     subject_name = serializers.CharField(source='subject.name', read_only=True)
+
+    def validate_subject(self, subject):
+        if not is_subject_qualification_managed(subject):
+            raise serializers.ValidationError('班会和校本课程不通过教师资质管理。')
+        return subject
 
     class Meta:
         model = TeacherQualification
