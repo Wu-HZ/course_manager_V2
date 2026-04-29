@@ -100,17 +100,6 @@
       </el-col>
     </el-row>
 
-    <el-card class="quick-actions" shadow="hover">
-      <template #header>常用入口</template>
-      <el-space wrap>
-        <el-button @click="router.push('/assignments')">授课分配</el-button>
-        <el-button @click="router.push('/qualifications')">教师资质</el-button>
-        <el-button @click="router.push('/blocked-times')">教师禁排</el-button>
-        <el-button @click="router.push('/schedule-locks')">课表锁定</el-button>
-        <el-button @click="router.push('/scheduler-settings')">排课参数</el-button>
-      </el-space>
-    </el-card>
-
     <el-card class="data-io" shadow="hover">
       <template #header>数据导入导出</template>
       <el-space wrap>
@@ -430,7 +419,6 @@ onMounted(loadDashboardData)
   color: #909399;
 }
 
-.quick-actions,
 .data-io {
   margin-top: 20px;
 }
