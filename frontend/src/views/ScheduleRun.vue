@@ -9,47 +9,97 @@
     />
 
     <el-card class="run-card">
-      <template #header>排课参数</template>
-      <el-form label-width="140px">
-        <el-form-item label="单次求解时限（秒）">
-          <el-input-number v-model="timeLimit" :min="10" :max="1500" />
-          <span class="form-hint">每次求解尝试的时间上限。</span>
-        </el-form-item>
-        <el-form-item label="最大尝试次数">
-          <el-input-number v-model="maxAttempts" :min="1" :max="250" />
-          <span class="form-hint">无解时自动重试的最大次数。</span>
-        </el-form-item>
-        <el-form-item label="总超时时间（秒）">
-          <el-input-number v-model="totalTimeout" :min="30" :max="3000" />
-          <span class="form-hint">所有尝试累计允许使用的总时间。</span>
-        </el-form-item>
-        <el-form-item>
-          <el-button
-            type="primary"
-            :loading="running"
-            :disabled="Boolean(precheck && !precheck.summary.can_run)"
-            @click="runSchedule"
-          >
-            <el-icon v-if="!running"><VideoPlay /></el-icon>
-            {{ running ? '排课中...' : '开始排课' }}
-          </el-button>
-          <span v-if="precheck && !precheck.summary.can_run" class="form-blocking-text">
+      <template #header>
+        <div class="run-card__header">
+          <div>
+            <div class="run-card__title">排课参数</div>
+            <div class="run-card__subtitle">普通使用只需开始排课，求解参数已收纳到高级设置。</div>
+          </div>
+          <el-tag :type="runStatusTagType" effect="light">{{ runStatusTagText }}</el-tag>
+        </div>
+      </template>
+
+      <div class="run-overview">
+        <div class="run-primary-panel" :class="{ blocked: !canRunSchedule }">
+          <div class="run-primary-panel__eyebrow">开始本次排课</div>
+          <div class="run-primary-panel__title">按当前数据与约束生成新的排课结果</div>
+          <div class="run-primary-panel__description">{{ runPrimaryDescription }}</div>
+          <div class="run-primary-panel__actions">
+            <el-button
+              type="primary"
+              size="large"
+              :loading="running"
+              :disabled="!canRunSchedule"
+              @click="runSchedule"
+            >
+              <el-icon v-if="!running"><VideoPlay /></el-icon>
+              {{ running ? '排课中...' : '开始排课' }}
+            </el-button>
+          </div>
+          <div v-if="!canRunSchedule" class="run-primary-panel__notice">
             请先处理上方必须项后再开始排课。
-          </span>
-        </el-form-item>
-        <el-form-item label="浏览器通知">
-          <div class="notification-setting">
-            <div class="notification-setting__text">{{ notificationStatusText }}</div>
+          </div>
+        </div>
+
+        <div class="run-side-panel">
+          <div class="status-card">
+            <div class="status-card__top">
+              <div class="status-card__title">浏览器通知</div>
+              <el-tag :type="notificationTagType" effect="light">{{ notificationTagText }}</el-tag>
+            </div>
+            <div class="status-card__text">{{ notificationStatusText }}</div>
             <el-button
               v-if="notificationSupported && notificationPermission !== 'granted'"
               size="small"
+              plain
               @click="requestNotificationPermission"
             >
-              {{ notificationPermission === 'denied' ? '已被拦截' : '开启通知' }}
+              {{ notificationPermission === 'denied' ? '查看权限设置' : '开启通知' }}
             </el-button>
           </div>
-        </el-form-item>
-      </el-form>
+
+          <button type="button" class="advanced-toggle" @click="advancedExpanded = !advancedExpanded">
+            <div class="advanced-toggle__main">
+              <div class="advanced-toggle__title">高级设置</div>
+              <div class="advanced-toggle__subtitle">如无特殊需求，保持默认即可</div>
+            </div>
+            <div class="advanced-toggle__summary">
+              <span v-for="item in advancedSummaryItems" :key="item" class="advanced-toggle__chip">
+                {{ item }}
+              </span>
+            </div>
+            <div class="advanced-toggle__indicator">{{ advancedExpanded ? '收起' : '展开' }}</div>
+          </button>
+        </div>
+      </div>
+
+      <transition name="advanced-panel">
+        <div v-show="advancedExpanded" class="advanced-panel">
+          <div class="advanced-panel__header">
+            <div class="advanced-panel__title">求解参数</div>
+            <div class="advanced-panel__subtitle">
+              这些参数只影响求解策略，不影响课程、教师和约束数据本身。
+            </div>
+          </div>
+          <div class="advanced-grid">
+            <div class="advanced-field">
+              <div class="advanced-field__label">单次求解时限</div>
+              <div class="advanced-field__hint">每次求解尝试最多可使用的时间。</div>
+              <el-input-number v-model="timeLimit" :min="10" :max="1500" />
+            </div>
+            <div class="advanced-field">
+              <div class="advanced-field__label">最大尝试次数</div>
+              <div class="advanced-field__hint">未得到结果时，系统最多自动重试的次数。</div>
+              <el-input-number v-model="maxAttempts" :min="1" :max="250" />
+            </div>
+            <div class="advanced-field">
+              <div class="advanced-field__label">总超时时间</div>
+              <div class="advanced-field__hint">所有尝试累计允许使用的总时间。</div>
+              <el-input-number v-model="totalTimeout" :min="30" :max="3000" />
+            </div>
+          </div>
+        </div>
+      </transition>
     </el-card>
 
     <el-card ref="resultCardRef" v-if="result" class="result-card" :class="resultClass">
@@ -189,6 +239,7 @@ import ScheduleResultPicker from '../components/ScheduleResultPicker.vue'
 const timeLimit = ref(300)
 const maxAttempts = ref(50)
 const totalTimeout = ref(600)
+const advancedExpanded = ref(false)
 const running = ref(false)
 const result = ref(null)
 const errors = ref([])
@@ -216,6 +267,44 @@ const resultClass = computed(() => {
   }
   return 'success'
 })
+const canRunSchedule = computed(() => precheck.value?.summary.can_run ?? true)
+const runStatusTagType = computed(() => (canRunSchedule.value ? 'success' : 'danger'))
+const runStatusTagText = computed(() => (canRunSchedule.value ? '可以开始' : '存在阻塞项'))
+const runPrimaryDescription = computed(() => {
+  if (!canRunSchedule.value) {
+    return '当前仍有前置必需项未处理，排课入口会保持禁用，直到这些阻塞项被解决。'
+  }
+  return '系统会按当前课程、教师、约束和锁定信息执行求解，并将本次结果保存到历史记录。'
+})
+const notificationTagType = computed(() => {
+  if (!notificationSupported) {
+    return 'info'
+  }
+  if (notificationPermission.value === 'granted') {
+    return 'success'
+  }
+  if (notificationPermission.value === 'denied') {
+    return 'danger'
+  }
+  return 'warning'
+})
+const notificationTagText = computed(() => {
+  if (!notificationSupported) {
+    return '不支持'
+  }
+  if (notificationPermission.value === 'granted') {
+    return '已开启'
+  }
+  if (notificationPermission.value === 'denied') {
+    return '已拦截'
+  }
+  return '未开启'
+})
+const advancedSummaryItems = computed(() => ([
+  `单次 ${timeLimit.value} 秒`,
+  `最多 ${maxAttempts.value} 次`,
+  `总计 ${totalTimeout.value} 秒`,
+]))
 const completionDialogTitle = computed(() => (
   completionDialogMode.value === 'success' ? '排课完成' : '排课已结束'
 ))
@@ -474,37 +563,236 @@ onBeforeUnmount(() => {
   margin-bottom: 20px;
 }
 
+.run-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.run-card__title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.run-card__subtitle {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #606266;
+}
+
+.run-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr);
+  gap: 16px;
+}
+
+.run-primary-panel {
+  padding: 24px;
+  border: 1px solid #d7e8fb;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #f7fbff 0%, #eef4ff 100%);
+}
+
+.run-primary-panel.blocked {
+  border-color: #f3c8cd;
+  background: linear-gradient(135deg, #fff8f8 0%, #fff1f1 100%);
+}
+
+.run-primary-panel__eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #7b8ba1;
+  text-transform: uppercase;
+}
+
+.run-primary-panel__title {
+  margin-top: 10px;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #1f2d3d;
+}
+
+.run-primary-panel__description {
+  margin-top: 10px;
+  max-width: 560px;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #526277;
+}
+
+.run-primary-panel__actions {
+  margin-top: 20px;
+}
+
+.run-primary-panel__notice {
+  margin-top: 14px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #d14a5c;
+}
+
+.run-side-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.status-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid #e7edf4;
+  border-radius: 18px;
+  background: #fff;
+}
+
+.status-card__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.status-card__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.status-card__text {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #606266;
+}
+
+.advanced-toggle {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid #e4ebf3;
+  border-radius: 18px;
+  background: #f8fafc;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.advanced-toggle:hover {
+  border-color: #cad9ea;
+  background: #f3f7fb;
+}
+
+.advanced-toggle__main {
+  min-width: 0;
+}
+
+.advanced-toggle__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.advanced-toggle__subtitle {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #606266;
+}
+
+.advanced-toggle__summary {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.advanced-toggle__chip {
+  padding: 5px 10px;
+  border: 1px solid #dce6ef;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #5a6b80;
+}
+
+.advanced-toggle__indicator {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 30px;
+  color: #409eff;
+  white-space: nowrap;
+}
+
+.advanced-panel {
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid #e8eef5;
+  border-radius: 18px;
+  background: #fbfcfe;
+}
+
+.advanced-panel__header {
+  margin-bottom: 16px;
+}
+
+.advanced-panel__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.advanced-panel__subtitle {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #606266;
+}
+
+.advanced-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.advanced-field {
+  padding: 16px;
+  border: 1px solid #e7edf4;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.advanced-field__label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.advanced-field__hint {
+  margin: 6px 0 14px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #606266;
+}
+
+.advanced-field :deep(.el-input-number) {
+  width: 100%;
+}
+
 .result-card.error {
   border-color: #f56c6c;
 }
 
 .result-card.success {
   border-color: #67c23a;
-}
-
-.form-hint {
-  margin-left: 10px;
-  color: #909399;
-  font-size: 12px;
-}
-
-.form-blocking-text {
-  margin-left: 12px;
-  font-size: 12px;
-  color: #f56c6c;
-}
-
-.notification-setting {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.notification-setting__text {
-  color: #606266;
-  font-size: 13px;
-  line-height: 1.6;
 }
 
 .errors {
@@ -604,5 +892,49 @@ onBeforeUnmount(() => {
   margin-top: 6px;
   color: #303133;
   line-height: 1.5;
+}
+
+.advanced-panel-enter-active,
+.advanced-panel-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.advanced-panel-enter-from,
+.advanced-panel-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+@media (max-width: 992px) {
+  .run-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .advanced-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .run-card__header,
+  .status-card__top,
+  .advanced-toggle {
+    flex-direction: column;
+  }
+
+  .run-primary-panel,
+  .status-card,
+  .advanced-toggle,
+  .advanced-panel {
+    padding: 16px;
+  }
+
+  .run-primary-panel__title {
+    font-size: 20px;
+  }
+
+  .advanced-toggle__summary {
+    justify-content: flex-start;
+  }
 }
 </style>
