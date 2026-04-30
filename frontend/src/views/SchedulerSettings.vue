@@ -52,15 +52,14 @@
                 :placeholder="field.placeholder || ''"
                 clearable
               />
-              <div v-else class="number-control">
-                <el-input-number
-                  v-model="form[field.key]"
-                  :min="field.min"
-                  :max="field.max"
-                  controls-position="right"
-                />
-                <span v-if="field.unit" class="field-card__unit">{{ field.unit }}</span>
-              </div>
+                <div v-else class="number-control">
+                  <el-input-number
+                    v-model="form[field.key]"
+                    :min="field.min"
+                    :max="field.max"
+                  />
+                  <span v-if="field.unit" class="field-card__unit">{{ field.unit }}</span>
+                </div>
             </div>
 
             <div class="field-card__help">{{ field.help }}</div>
