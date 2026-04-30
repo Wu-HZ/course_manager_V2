@@ -30,10 +30,58 @@
             <div class="section-title">{{ section.title }}</div>
             <div class="section-subtitle">{{ section.subtitle }}</div>
           </div>
-          <el-tag size="small" effect="plain" round>{{ section.fields.length }} 项</el-tag>
+          <el-tag size="small" effect="plain" round>{{ section.count }} 项</el-tag>
         </div>
 
-        <div class="field-grid" :class="section.gridClass">
+        <template v-if="section.groups">
+          <div class="section-groups">
+            <div v-for="group in section.groups" :key="group.key" class="section-group">
+              <div class="section-group__header">
+                <div>
+                  <div class="section-group__title">{{ group.title }}</div>
+                  <div class="section-group__subtitle">{{ group.subtitle }}</div>
+                </div>
+                <el-tag size="small" effect="plain" round>{{ group.fields.length }} 项</el-tag>
+              </div>
+
+              <div class="field-grid" :class="group.gridClass">
+                <div
+                  v-for="field in group.fields"
+                  :key="field.key"
+                  class="field-card"
+                  :class="field.spanClass"
+                >
+                  <div class="field-card__head">
+                    <div class="field-card__code">{{ field.code }}</div>
+                    <div class="field-card__label">{{ field.label }}</div>
+                  </div>
+
+                  <div class="field-card__control">
+                    <el-input
+                      v-if="field.type === 'text'"
+                      v-model="form[field.key]"
+                      :placeholder="field.placeholder || ''"
+                      clearable
+                    />
+                    <div v-else class="number-control">
+                      <el-input-number
+                        v-model="form[field.key]"
+                        :min="field.min"
+                        :max="field.max"
+                      />
+                      <span v-if="field.unit" class="field-card__unit">{{ field.unit }}</span>
+                    </div>
+                  </div>
+
+                  <div class="field-card__help">{{ field.help }}</div>
+                  <div v-if="field.note" class="field-card__note">{{ field.note }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <div v-else class="field-grid" :class="section.gridClass">
           <div
             v-for="field in section.fields"
             :key="field.key"
@@ -52,14 +100,14 @@
                 :placeholder="field.placeholder || ''"
                 clearable
               />
-                <div v-else class="number-control">
-                  <el-input-number
-                    v-model="form[field.key]"
-                    :min="field.min"
-                    :max="field.max"
-                  />
-                  <span v-if="field.unit" class="field-card__unit">{{ field.unit }}</span>
-                </div>
+              <div v-else class="number-control">
+                <el-input-number
+                  v-model="form[field.key]"
+                  :min="field.min"
+                  :max="field.max"
+                />
+                <span v-if="field.unit" class="field-card__unit">{{ field.unit }}</span>
+              </div>
             </div>
 
             <div class="field-card__help">{{ field.help }}</div>
@@ -128,7 +176,7 @@ const hardConstraintFields = [
   },
 ]
 
-const preferenceFields = [
+const preferenceRewardFields = [
   {
     key: 's1_am_preference_weight',
     code: 'S1',
@@ -147,6 +195,9 @@ const preferenceFields = [
     max: 100,
     help: '允许连堂的课程连续排布时获得的奖励分。',
   },
+]
+
+const preferencePenaltyFields = [
   {
     key: 's3_distribution_weight',
     code: 'S3',
@@ -209,6 +260,7 @@ const sections = [
     key: 'basic',
     title: '基础配置',
     subtitle: '决定班会识别、合班课时段以及求解器并行方式。',
+    count: basicFields.length,
     gridClass: 'field-grid--basic',
     fields: basicFields,
   },
@@ -216,22 +268,38 @@ const sections = [
     key: 'constraints',
     title: '硬约束参数',
     subtitle: '必须满足的限制，调整后会直接影响是否能够排通。',
+    count: hardConstraintFields.length,
     gridClass: 'field-grid--constraints',
     fields: hardConstraintFields,
   },
   {
     key: 'preferences',
     title: '软约束权重',
-    subtitle: '只在多个方案都可行时参与评分，数值越大，系统越重视该偏好。',
-    gridClass: 'field-grid--preferences',
-    fields: preferenceFields,
+    subtitle: '只在多个方案都可行时参与评分，区分奖励分与惩罚分后会更容易调整取舍方向。',
+    count: preferenceRewardFields.length + preferencePenaltyFields.length,
+    groups: [
+      {
+        key: 'reward',
+        title: '奖励分',
+        subtitle: '数值越大，系统越倾向于主动争取这类安排。',
+        gridClass: 'field-grid--reward',
+        fields: preferenceRewardFields,
+      },
+      {
+        key: 'penalty',
+        title: '惩罚分',
+        subtitle: '数值越大，系统越会回避这类安排；阈值项用于决定惩罚何时开始生效。',
+        gridClass: 'field-grid--penalty',
+        fields: preferencePenaltyFields,
+      },
+    ],
   },
 ]
 
 const overviewStats = [
   { label: '基础配置', value: basicFields.length },
   { label: '硬约束', value: hardConstraintFields.length },
-  { label: '软约束', value: preferenceFields.length },
+  { label: '软约束', value: preferenceRewardFields.length + preferencePenaltyFields.length },
 ]
 
 const loading = ref(false)
@@ -407,12 +475,52 @@ onMounted(loadSettings)
   padding: 16px;
 }
 
+.section-groups {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.section-group {
+  border: 1px solid #edf1f6;
+  border-radius: 14px;
+  background: #fcfdff;
+  overflow: hidden;
+}
+
+.section-group__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #eef2f6;
+  background: #f8fafc;
+}
+
+.section-group__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.section-group__subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #606266;
+}
+
 .field-grid--basic,
 .field-grid--constraints {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.field-grid--preferences {
+.field-grid--reward {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.field-grid--penalty {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
@@ -485,7 +593,7 @@ onMounted(loadSettings)
 }
 
 @media (max-width: 1280px) {
-  .field-grid--preferences {
+  .field-grid--penalty {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
@@ -493,7 +601,8 @@ onMounted(loadSettings)
 @media (max-width: 900px) {
   .field-grid--basic,
   .field-grid--constraints,
-  .field-grid--preferences {
+  .field-grid--reward,
+  .field-grid--penalty {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -512,7 +621,8 @@ onMounted(loadSettings)
 
   .field-grid--basic,
   .field-grid--constraints,
-  .field-grid--preferences {
+  .field-grid--reward,
+  .field-grid--penalty {
     grid-template-columns: 1fr;
   }
 
@@ -521,6 +631,8 @@ onMounted(loadSettings)
   }
 
   .field-grid,
+  .section-groups,
+  .section-group__header,
   .section-header {
     padding: 14px;
   }
