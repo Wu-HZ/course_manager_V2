@@ -135,6 +135,11 @@ const router = useRouter()
   color: #409eff;
 }
 
+.step-item.status-optional .step-index {
+  background: #eef5fb;
+  color: #5b7c99;
+}
+
 .step-item.status-warning .step-index {
   background: #fdf6ec;
   color: #e6a23c;
@@ -165,6 +170,11 @@ const router = useRouter()
 .step-item.status-ready .step-content {
   border-color: #c6e2ff;
   background: #f7fbff;
+}
+
+.step-item.status-optional .step-content {
+  border-color: #d7e6f2;
+  background: #f8fbfd;
 }
 
 .step-top {

@@ -4,6 +4,7 @@ const STATUS_META = {
   blocked: { label: '待处理', type: 'danger' },
   ready: { label: '可执行', type: 'primary' },
   completed: { label: '已完成', type: 'success' },
+  optional: { label: '可选功能', type: 'info' },
 }
 
 export const getPrecheckStatusLabel = (status) =>

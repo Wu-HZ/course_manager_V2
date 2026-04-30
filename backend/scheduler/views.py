@@ -443,6 +443,22 @@ def _build_precheck_payload():
         assignment_step_detail,
         _make_actions(('去授课分配', '/assignments')),
     ))
+    if not classes or not subjects:
+        locks_step_detail = '请先补齐班级和课程；如果后续需要把某节已分配课程固定到具体时段，可再使用课表锁定。'
+    elif manual_assignment_count == 0:
+        locks_step_detail = '当前还没有手动指定教师的班级课程；只有需要固定某节已分配课程时，才需要使用课表锁定。'
+    elif len(locks) == 0:
+        locks_step_detail = '当前还没有班级课程锁定；如需把某节已分配课程固定到具体时段，可按需使用。'
+    else:
+        locks_step_detail = f"已设置 {len(locks)} 条班级课程锁定；该功能仅在需要固定具体时段时使用。"
+    steps.append(_make_step(
+        'locks',
+        '课表锁定',
+        '把某个班里已手动分配教师的课程固定到具体时段；这是可选功能，不设置也不会影响排课。',
+        'optional',
+        locks_step_detail,
+        _make_actions(('去课表锁定', '/schedule-locks')),
+    ))
     if successful_results_count > 0:
         run_step_status = 'completed'
         run_step_detail = f"已执行过试排，当前已有 {successful_results_count} 个可用排课结果。"
@@ -519,6 +535,8 @@ def _build_precheck_payload():
             'detail': '当前每个班级课程的锁定数量都没有超过该课程周课时。',
         })
 
+    countable_steps = [step for step in steps if step['status'] != 'optional']
+
     summary = {
         'teachers_count': len(teachers),
         'classes_count': len(classes),
@@ -536,8 +554,8 @@ def _build_precheck_payload():
         'blocking_issue_count': len(blocking_issues),
         'warning_issue_count': len(warning_issues),
         'can_run': can_run,
-        'completed_steps': sum(1 for step in steps if step['status'] == 'completed'),
-        'total_steps': len(steps),
+        'completed_steps': sum(1 for step in countable_steps if step['status'] == 'completed'),
+        'total_steps': len(countable_steps),
         'total_school_hours': total_school_hours,
         'average_teacher_hours': average_teacher_hours,
     }
