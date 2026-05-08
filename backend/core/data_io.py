@@ -5,6 +5,7 @@ Excel格式，每个数据类型一个Sheet
 from io import BytesIO
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
+from django.db import transaction
 from django.http import HttpResponse
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -112,6 +113,28 @@ def style_header(ws):
         cell.alignment = Alignment(horizontal='center')
 
 
+def build_import_response(results, errors, committed):
+    """统一构造导入响应，便于前端区分是否已落库。"""
+    response_results = results
+    status_code = 200
+    payload = {
+        'results': response_results,
+        'errors': errors[:20],
+        'error_count': len(errors),
+        'committed': committed,
+    }
+
+    if not committed:
+        payload['error'] = '导入失败，已回滚，本次未写入任何数据。'
+        payload['results'] = {
+            sheet_name: {'created': 0, 'updated': 0}
+            for sheet_name in results
+        }
+        status_code = 400
+
+    return Response(payload, status=status_code)
+
+
 @api_view(['GET'])
 def export_data(request):
     """导出所有数据到Excel"""
@@ -191,128 +214,129 @@ def import_data(request):
     results = {}
     errors = []
 
-    # 按顺序导入（先导入被依赖的数据）
-    for sheet_name in EXPORT_ORDER:
-        if sheet_name not in wb.sheetnames:
-            continue
-
-        config = SHEET_CONFIG[sheet_name]
-        model = config['model']
-        fields = config['fields']
-        fk_fields = config.get('fk_fields', {})
-
-        ws = wb[sheet_name]
-        rows = list(ws.iter_rows(min_row=2, values_only=True))  # 跳过表头
-
-        created = 0
-        updated = 0
-
-        for row_idx, row in enumerate(rows, start=2):
-            if not any(row):  # 跳过空行
+    with transaction.atomic():
+        # 按顺序导入（先导入被依赖的数据）
+        for sheet_name in EXPORT_ORDER:
+            if sheet_name not in wb.sheetnames:
                 continue
 
-            try:
-                data = {}
-                lookup_field = None
-                lookup_value = None
-                row_has_error = False
+            config = SHEET_CONFIG[sheet_name]
+            model = config['model']
+            fields = config['fields']
+            fk_fields = config.get('fk_fields', {})
 
-                for i, field in enumerate(fields):
-                    value = row[i] if i < len(row) else None
+            ws = wb[sheet_name]
+            rows = list(ws.iter_rows(min_row=2, values_only=True))  # 跳过表头
 
-                    # 处理布尔值
-                    if isinstance(value, str) and value.upper() in ('TRUE', 'FALSE'):
-                        value = value.upper() == 'TRUE'
+            created = 0
+            updated = 0
 
-                    if '__' in field:
-                        # 外键字段
-                        fk_info = fk_fields.get(field)
-                        if fk_info and value:
-                            fk_field_name, fk_model, fk_lookup = fk_info
-                            try:
-                                fk_obj = fk_model.objects.get(**{fk_lookup: value})
-                                data[fk_field_name] = fk_obj
-                            except fk_model.DoesNotExist:
-                                errors.append(f'{sheet_name} 第{row_idx}行: 找不到 {value}')
-                                row_has_error = True
-                                break
-                        elif fk_info:
-                            fk_field_name = fk_info[0]
-                            data[fk_field_name] = None
-                    else:
-                        # 空值使用模型字段默认值
-                        if value is None:
-                            model_field = model._meta.get_field(field)
-                            if model_field.has_default():
-                                value = model_field.default
-                        data[field] = value
-                        # 用第一个非外键字段作为查找字段
-                        if lookup_field is None and value:
-                            lookup_field = field
-                            lookup_value = value
-
-                if row_has_error:
+            for row_idx, row in enumerate(rows, start=2):
+                if not any(row):  # 跳过空行
                     continue
 
-                if not data or not lookup_field:
-                    continue
+                try:
+                    data = {}
+                    lookup_field = None
+                    lookup_value = None
+                    row_has_error = False
 
-                # 根据名称查找或创建
-                if model == TeacherQualification:
-                    if not is_subject_qualification_managed(data.get('subject')):
+                    for i, field in enumerate(fields):
+                        value = row[i] if i < len(row) else None
+
+                        # 处理布尔值
+                        if isinstance(value, str) and value.upper() in ('TRUE', 'FALSE'):
+                            value = value.upper() == 'TRUE'
+
+                        if '__' in field:
+                            # 外键字段
+                            fk_info = fk_fields.get(field)
+                            if fk_info and value:
+                                fk_field_name, fk_model, fk_lookup = fk_info
+                                try:
+                                    fk_obj = fk_model.objects.get(**{fk_lookup: value})
+                                    data[fk_field_name] = fk_obj
+                                except fk_model.DoesNotExist:
+                                    errors.append(f'{sheet_name} 第{row_idx}行: 找不到 {value}')
+                                    row_has_error = True
+                                    break
+                            elif fk_info:
+                                fk_field_name = fk_info[0]
+                                data[fk_field_name] = None
+                        else:
+                            # 空值使用模型字段默认值
+                            if value is None:
+                                model_field = model._meta.get_field(field)
+                                if model_field.has_default():
+                                    value = model_field.default
+                            data[field] = value
+                            # 用第一个非外键字段作为查找字段
+                            if lookup_field is None and value:
+                                lookup_field = field
+                                lookup_value = value
+
+                    if row_has_error:
                         continue
-                    # 资质表用组合键查找
-                    obj, is_created = model.objects.get_or_create(
-                        teacher=data.get('teacher'),
-                        subject=data.get('subject'),
-                        defaults=data
-                    )
-                elif model == ClassSubjectTeacher:
-                    # 授课分配用组合键查找
-                    obj, is_created = model.objects.get_or_create(
-                        school_class=data.get('school_class'),
-                        subject=data.get('subject'),
-                        defaults=data
-                    )
-                    if not is_created:
-                        for k, v in data.items():
-                            setattr(obj, k, v)
-                        obj.save()
-                elif model == ScheduleLock:
-                    # 课表锁定用组合键查找
-                    obj, is_created = model.objects.update_or_create(
-                        school_class=data.get('school_class'),
-                        day=data.get('day'),
-                        period=data.get('period'),
-                        defaults=data
-                    )
-                elif model == TeacherBlockedTime:
-                    # 教师禁排日用组合键查找
-                    obj, is_created = model.objects.update_or_create(
-                        teacher=data.get('teacher'),
-                        day=data.get('day'),
-                        period_type=data.get('period_type'),
-                        defaults=data
-                    )
-                else:
-                    # 其他表用name字段查找
-                    obj, is_created = model.objects.update_or_create(
-                        **{lookup_field: lookup_value},
-                        defaults=data
-                    )
 
-                if is_created:
-                    created += 1
-                else:
-                    updated += 1
+                    if not data or not lookup_field:
+                        continue
 
-            except Exception as e:
-                errors.append(f'{sheet_name} 第{row_idx}行: {str(e)}')
+                    # 根据名称查找或创建
+                    if model == TeacherQualification:
+                        if not is_subject_qualification_managed(data.get('subject')):
+                            continue
+                        # 资质表用组合键查找
+                        obj, is_created = model.objects.get_or_create(
+                            teacher=data.get('teacher'),
+                            subject=data.get('subject'),
+                            defaults=data
+                        )
+                    elif model == ClassSubjectTeacher:
+                        # 授课分配用组合键查找
+                        obj, is_created = model.objects.get_or_create(
+                            school_class=data.get('school_class'),
+                            subject=data.get('subject'),
+                            defaults=data
+                        )
+                        if not is_created:
+                            for k, v in data.items():
+                                setattr(obj, k, v)
+                            obj.save()
+                    elif model == ScheduleLock:
+                        # 课表锁定用组合键查找
+                        obj, is_created = model.objects.update_or_create(
+                            school_class=data.get('school_class'),
+                            day=data.get('day'),
+                            period=data.get('period'),
+                            defaults=data
+                        )
+                    elif model == TeacherBlockedTime:
+                        # 教师禁排日用组合键查找
+                        obj, is_created = model.objects.update_or_create(
+                            teacher=data.get('teacher'),
+                            day=data.get('day'),
+                            period_type=data.get('period_type'),
+                            defaults=data
+                        )
+                    else:
+                        # 其他表用name字段查找
+                        obj, is_created = model.objects.update_or_create(
+                            **{lookup_field: lookup_value},
+                            defaults=data
+                        )
 
-        results[sheet_name] = {'created': created, 'updated': updated}
+                    if is_created:
+                        created += 1
+                    else:
+                        updated += 1
 
-    return Response({
-        'results': results,
-        'errors': errors[:20],  # 只返回前20条错误
-        'error_count': len(errors)
-    })
+                except Exception as e:
+                    errors.append(f'{sheet_name} 第{row_idx}行: {str(e)}')
+
+            results[sheet_name] = {'created': created, 'updated': updated}
+
+        if errors:
+            transaction.set_rollback(True)
+            return build_import_response(results, errors, committed=False)
+
+    return build_import_response(results, errors, committed=True)

@@ -138,8 +138,14 @@
         </el-descriptions>
 
         <div v-if="importResult.error_count > 0" class="import-errors">
-          <el-alert type="warning" :closable="false">
-            <template #title>共有 {{ importResult.error_count }} 条导入提示</template>
+          <el-alert :type="importResult.committed === false ? 'error' : 'warning'" :closable="false">
+            <template #title>
+              {{
+                importResult.committed === false
+                  ? `共有 ${importResult.error_count} 条导入问题，本次已回滚，未写入任何数据`
+                  : `共有 ${importResult.error_count} 条导入提示`
+              }}
+            </template>
             <div class="import-error-list">
               <div v-for="(err, idx) in importResult.errors" :key="idx">{{ err }}</div>
             </div>
@@ -293,7 +299,12 @@ const handleImport = async (file) => {
     await loadDashboardData()
     ElMessage.success('导入完成')
   } catch (error) {
-    ElMessage.error(error.response?.data?.error || '导入失败')
+    const responseData = error.response?.data
+    if (responseData?.results) {
+      importResult.value = responseData
+      importResultVisible.value = true
+    }
+    ElMessage.error(responseData?.error || '导入失败')
   } finally {
     importing.value = false
   }
