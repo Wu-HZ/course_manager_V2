@@ -215,6 +215,7 @@ def import_data(request):
                 data = {}
                 lookup_field = None
                 lookup_value = None
+                row_has_error = False
 
                 for i, field in enumerate(fields):
                     value = row[i] if i < len(row) else None
@@ -233,7 +234,8 @@ def import_data(request):
                                 data[fk_field_name] = fk_obj
                             except fk_model.DoesNotExist:
                                 errors.append(f'{sheet_name} 第{row_idx}行: 找不到 {value}')
-                                continue
+                                row_has_error = True
+                                break
                         elif fk_info:
                             fk_field_name = fk_info[0]
                             data[fk_field_name] = None
@@ -248,6 +250,9 @@ def import_data(request):
                         if lookup_field is None and value:
                             lookup_field = field
                             lookup_value = value
+
+                if row_has_error:
+                    continue
 
                 if not data or not lookup_field:
                     continue
