@@ -2,8 +2,10 @@
 数据导入导出功能
 Excel格式，每个数据类型一个Sheet
 """
+from collections import Counter
 from io import BytesIO
 from django.core.exceptions import ValidationError
+from django.db.models import Count
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from django.db import transaction
@@ -114,7 +116,84 @@ def style_header(ws):
         cell.alignment = Alignment(horizontal='center')
 
 
-def build_import_response(results, errors, committed):
+def get_name_based_sheet_configs():
+    """返回所有以 name 作为导入导出主键的基础数据配置。"""
+    seen_models = set()
+    configs = []
+    for sheet_name in EXPORT_ORDER:
+        config = SHEET_CONFIG[sheet_name]
+        model = config['model']
+        if 'name' not in config['fields'] or model in seen_models:
+            continue
+        configs.append((sheet_name, config))
+        seen_models.add(model)
+    return configs
+
+
+def format_duplicate_name_items(duplicates, unit):
+    """把重名项格式化成便于前端展示的文本。"""
+    return '、'.join(
+        f"{item['name']}（{item['count']}{unit}）"
+        for item in duplicates
+    )
+
+
+def collect_existing_duplicate_name_errors():
+    """检查当前数据库中是否存在会导致名称关联歧义的重名。"""
+    errors = []
+    for _, config in get_name_based_sheet_configs():
+        model = config['model']
+        duplicates = list(
+            model.objects
+            .exclude(name__isnull=True)
+            .exclude(name='')
+            .values('name')
+            .annotate(count=Count('id'))
+            .filter(count__gt=1)
+            .order_by('name')
+        )
+        if not duplicates:
+            continue
+        duplicate_text = format_duplicate_name_items(duplicates[:5], '条')
+        suffix = ' 等' if len(duplicates) > 5 else ''
+        errors.append(
+            f"系统中的{model._meta.verbose_name}存在重名：{duplicate_text}{suffix}"
+        )
+    return errors
+
+
+def collect_workbook_duplicate_name_errors(workbook):
+    """检查导入文件自身是否包含重名基础数据。"""
+    errors = []
+    for sheet_name, config in get_name_based_sheet_configs():
+        if sheet_name not in workbook.sheetnames:
+            continue
+
+        name_index = config['fields'].index('name')
+        name_counts = Counter()
+        for row in workbook[sheet_name].iter_rows(min_row=2, values_only=True):
+            value = row[name_index] if name_index < len(row) else None
+            if isinstance(value, str):
+                value = value.strip()
+            if value:
+                name_counts[str(value)] += 1
+
+        duplicates = [
+            {'name': name, 'count': count}
+            for name, count in sorted(name_counts.items())
+            if count > 1
+        ]
+        if not duplicates:
+            continue
+        duplicate_text = format_duplicate_name_items(duplicates[:5], '行')
+        suffix = ' 等' if len(duplicates) > 5 else ''
+        errors.append(
+            f"导入文件的“{sheet_name}”工作表存在重名：{duplicate_text}{suffix}"
+        )
+    return errors
+
+
+def build_import_response(results, errors, committed, error_message=None):
     """统一构造导入响应，便于前端区分是否已落库。"""
     response_results = results
     status_code = 200
@@ -126,7 +205,7 @@ def build_import_response(results, errors, committed):
     }
 
     if not committed:
-        payload['error'] = '导入失败，已回滚，本次未写入任何数据。'
+        payload['error'] = error_message or '导入失败，已回滚，本次未写入任何数据。'
         payload['results'] = {
             sheet_name: {'created': 0, 'updated': 0}
             for sheet_name in results
@@ -134,6 +213,15 @@ def build_import_response(results, errors, committed):
         status_code = 400
 
     return Response(payload, status=status_code)
+
+
+def build_export_error_response(errors, error_message):
+    """统一返回导出失败响应。"""
+    return Response({
+        'error': error_message,
+        'errors': errors[:20],
+        'error_count': len(errors),
+    }, status=400)
 
 
 def get_import_lookup_kwargs(model, data, lookup_field=None, lookup_value=None):
@@ -200,6 +288,13 @@ def validate_import_instance(model, data, lookup_kwargs):
 @api_view(['GET'])
 def export_data(request):
     """导出所有数据到Excel"""
+    duplicate_name_errors = collect_existing_duplicate_name_errors()
+    if duplicate_name_errors:
+        return build_export_error_response(
+            duplicate_name_errors,
+            '导出失败：检测到重名基础数据，当前 Excel 按名称关联，导出后无法可靠导回。请先处理重名后再试。'
+        )
+
     wb = Workbook()
     wb.remove(wb.active)  # 移除默认sheet
 
@@ -273,7 +368,23 @@ def import_data(request):
     except Exception as e:
         return Response({'error': f'无法读取Excel文件: {str(e)}'}, status=400)
 
-    results = {}
+    results = {
+        sheet_name: {'created': 0, 'updated': 0}
+        for sheet_name in EXPORT_ORDER
+        if sheet_name in wb.sheetnames
+    }
+    duplicate_name_errors = (
+        collect_existing_duplicate_name_errors() +
+        collect_workbook_duplicate_name_errors(wb)
+    )
+    if duplicate_name_errors:
+        return build_import_response(
+            results,
+            duplicate_name_errors,
+            committed=False,
+            error_message='导入失败：检测到重名基础数据，当前 Excel 按名称关联，无法可靠匹配。请先处理重名后再试。'
+        )
+
     errors = []
 
     with transaction.atomic():

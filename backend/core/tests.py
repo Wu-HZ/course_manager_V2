@@ -236,6 +236,67 @@ class ImportDataTests(APITestCase):
         self.assertEqual(response.data['error_count'], 1)
         self.assertIn('时段', response.data['errors'][0])
 
+    def test_import_rejects_when_existing_name_duplicates_make_lookup_ambiguous(self):
+        Teacher.objects.create(name='王老师')
+        Teacher.objects.create(name='王老师')
+        blocked_time_sheet = next(
+            name for name, config in SHEET_CONFIG.items()
+            if config['model'] is TeacherBlockedTime
+        )
+
+        workbook_bytes = self.build_workbook({
+            blocked_time_sheet: [
+                ['王老师', 1, 'am'],
+            ]
+        })
+        upload = SimpleUploadedFile(
+            'import.xlsx',
+            workbook_bytes,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+
+        request = self.factory.post('/api/data/import/', {'file': upload}, format='multipart')
+        response = import_data(request)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.data['committed'])
+        self.assertEqual(TeacherBlockedTime.objects.count(), 0)
+        self.assertEqual(response.data['results'][blocked_time_sheet]['created'], 0)
+        self.assertEqual(response.data['results'][blocked_time_sheet]['updated'], 0)
+        self.assertEqual(response.data['error_count'], 1)
+        self.assertIn('系统中的教师存在重名', response.data['errors'][0])
+        self.assertIn('王老师', response.data['errors'][0])
+
+    def test_import_rejects_when_workbook_contains_duplicate_teacher_names(self):
+        teacher_sheet = next(
+            name for name, config in SHEET_CONFIG.items()
+            if config['model'] is Teacher
+        )
+
+        workbook_bytes = self.build_workbook({
+            teacher_sheet: [
+                ['周老师', None, None, None, 'FALSE', None, None],
+                ['周老师', None, None, None, 'FALSE', None, None],
+            ]
+        })
+        upload = SimpleUploadedFile(
+            'import.xlsx',
+            workbook_bytes,
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+
+        request = self.factory.post('/api/data/import/', {'file': upload}, format='multipart')
+        response = import_data(request)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.data['committed'])
+        self.assertEqual(Teacher.objects.filter(name='周老师').count(), 0)
+        self.assertEqual(response.data['results'][teacher_sheet]['created'], 0)
+        self.assertEqual(response.data['results'][teacher_sheet]['updated'], 0)
+        self.assertEqual(response.data['error_count'], 1)
+        self.assertIn(f'导入文件的“{teacher_sheet}”工作表存在重名', response.data['errors'][0])
+        self.assertIn('周老师', response.data['errors'][0])
+
 
 class ExportDataTests(APITestCase):
     def setUp(self):
@@ -265,3 +326,16 @@ class ExportDataTests(APITestCase):
         self.assertEqual(data_row[0], '王老师')
         self.assertEqual(data_row[2], combined_group.name)
         self.assertEqual(data_row[3], 1)
+
+    def test_export_rejects_when_existing_name_duplicates_make_file_ambiguous(self):
+        Teacher.objects.create(name='李老师')
+        Teacher.objects.create(name='李老师')
+
+        request = self.factory.get('/api/data/export/')
+        response = export_data(request)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data['error_count'], 1)
+        self.assertIn('导出失败', response.data['error'])
+        self.assertIn('系统中的教师存在重名', response.data['errors'][0])
+        self.assertIn('李老师', response.data['errors'][0])

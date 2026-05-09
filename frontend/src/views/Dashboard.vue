@@ -160,9 +160,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 import PreparationFlowCard from '../components/PreparationFlowCard.vue'
 import { getSchedulePrecheck } from '../api/scheduler'
@@ -264,6 +264,23 @@ const loadDashboardData = async () => {
   }
 }
 
+const parseBlobErrorPayload = async (blob) => {
+  if (!(blob instanceof Blob)) {
+    return blob || null
+  }
+
+  const text = await blob.text()
+  if (!text) {
+    return null
+  }
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    return { error: text }
+  }
+}
+
 const handleExport = async () => {
   exporting.value = true
   try {
@@ -280,7 +297,23 @@ const handleExport = async () => {
     window.URL.revokeObjectURL(url)
     ElMessage.success('导出成功')
   } catch (error) {
-    ElMessage.error('导出失败')
+    const responseData = await parseBlobErrorPayload(error.response?.data)
+    if (responseData?.errors?.length) {
+      await ElMessageBox.alert(
+        h(
+          'div',
+          { style: 'white-space: pre-line;' },
+          responseData.errors.join('\n')
+        ),
+        responseData.error || '导出失败',
+        {
+          type: 'error',
+          confirmButtonText: '确定',
+        }
+      )
+    } else {
+      ElMessage.error(responseData?.error || '导出失败')
+    }
   } finally {
     exporting.value = false
   }
