@@ -7,47 +7,82 @@
       </el-button>
     </div>
 
-    <el-table :data="teachers" stripe border>
-      <el-table-column prop="id" label="ID" width="60" />
-      <el-table-column prop="name" label="姓名" />
-      <el-table-column prop="travel_group_name" label="送教分组" />
-      <el-table-column label="校本课程" width="180">
-        <template #default="{ row }">
-          <el-tag v-if="row.exclude_from_combined" type="info">不参与</el-tag>
-          <template v-else>
-            <span v-if="row.combined_class_group_name">{{ row.combined_class_group_name }}</span>
-            <span v-else style="color: #909399">自动分组</span>
-            <span v-if="row.combined_class_day_display" style="margin-left: 5px; color: #409eff">
-              ({{ row.combined_class_day_display }})
-            </span>
-          </template>
-        </template>
-      </el-table-column>
-      <el-table-column label="周课时" width="150">
-        <template #default="{ row }">
-          <span v-if="row.min_weekly_hours != null && row.max_weekly_hours != null">
-            {{ row.min_weekly_hours }}~{{ row.max_weekly_hours }} 节
-          </span>
-          <span v-else-if="row.max_weekly_hours != null">
-            上限 {{ row.max_weekly_hours }} 节
-          </span>
-          <span v-else-if="row.min_weekly_hours != null">
-            至少 {{ row.min_weekly_hours }} 节
-          </span>
-          <span v-else style="color: #909399">不限</span>
-        </template>
-      </el-table-column>
-      <el-table-column prop="homeroom_class_name" label="班主任" />
-      <el-table-column label="操作" width="150">
-        <template #default="{ row }">
-          <el-button size="small" @click="showDialog(row)">编辑</el-button>
-          <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+    <MobileEntityList v-if="isMobile" :items="teachers" empty-description="暂无教师数据">
+      <template #title="{ item }">
+        {{ item.name }}
+      </template>
+      <template #subtitle="{ item }">
+        ID {{ item.id }}
+      </template>
+      <template #headerExtra="{ item }">
+        <el-tag v-if="item.homeroom_class_name" type="success" effect="plain">
+          {{ item.homeroom_class_name }}
+        </el-tag>
+      </template>
+      <template #meta="{ item }">
+        <div class="mobile-meta-list">
+          <div class="mobile-meta-list__item">
+            <span class="mobile-meta-list__label">送教分组</span>
+            <span class="mobile-meta-list__value">{{ item.travel_group_name || '未分配' }}</span>
+          </div>
+          <div class="mobile-meta-list__item">
+            <span class="mobile-meta-list__label">校本课程</span>
+            <span class="mobile-meta-list__value">{{ getCombinedClassLabel(item) }}</span>
+          </div>
+          <div class="mobile-meta-list__item">
+            <span class="mobile-meta-list__label">周课时</span>
+            <span class="mobile-meta-list__value">{{ getWeeklyHoursLabel(item) }}</span>
+          </div>
+          <div class="mobile-meta-list__item">
+            <span class="mobile-meta-list__label">班主任</span>
+            <span class="mobile-meta-list__value">{{ item.homeroom_class_name || '未设置' }}</span>
+          </div>
+        </div>
+      </template>
+      <template #actions="{ item }">
+        <el-button @click="showDialog(item)">编辑</el-button>
+        <el-button type="danger" plain @click="handleDelete(item)">删除</el-button>
+      </template>
+    </MobileEntityList>
 
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑教师' : '添加教师'" width="500px">
-      <el-form :model="form" label-width="120px">
+    <div v-else class="responsive-table-wrapper">
+      <el-table :data="teachers" stripe border>
+        <el-table-column prop="id" label="ID" width="60" />
+        <el-table-column prop="name" label="姓名" />
+        <el-table-column prop="travel_group_name" label="送教分组" min-width="140" />
+        <el-table-column label="校本课程" min-width="200">
+          <template #default="{ row }">
+            {{ getCombinedClassLabel(row) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="周课时" width="150">
+          <template #default="{ row }">
+            {{ getWeeklyHoursLabel(row) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="homeroom_class_name" label="班主任" min-width="120" />
+        <el-table-column label="操作" width="150" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" @click="showDialog(row)">编辑</el-button>
+            <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <el-dialog
+      v-model="dialogVisible"
+      :title="editingId ? '编辑教师' : '添加教师'"
+      :fullscreen="isMobile"
+      :width="isMobile ? undefined : '500px'"
+      class="responsive-dialog"
+    >
+      <el-form
+        :model="form"
+        :label-position="isMobile ? 'top' : 'right'"
+        label-width="120px"
+        class="responsive-form"
+      >
         <el-form-item label="姓名" required>
           <el-input v-model="form.name" />
         </el-form-item>
@@ -88,42 +123,42 @@
           </el-select>
         </el-form-item>
         <el-form-item label="不参与校本课程">
-          <el-switch v-model="form.exclude_from_combined" />
-          <span style="color: #909399; font-size: 12px; margin-left: 10px">
-            勾选后该教师不会被分配到校本课程
-          </span>
+          <div class="switch-row">
+            <el-switch v-model="form.exclude_from_combined" />
+            <span class="form-note">勾选后该教师不会被分配到校本课程</span>
+          </div>
         </el-form-item>
         <el-form-item label="周课时范围">
-          <div style="display: flex; align-items: center; gap: 10px;">
+          <div class="hours-range">
             <el-input-number
               v-model="form.min_weekly_hours"
               :min="0"
               :max="30"
-              placeholder="不限"
+              placeholder="最少节数"
               controls-position="right"
-              style="width: 130px"
               @change="val => form.min_weekly_hours = val === 0 ? null : val"
             />
-            <span>~</span>
+            <span class="hours-range__separator">~</span>
             <el-input-number
               v-model="form.max_weekly_hours"
               :min="0"
               :max="30"
-              placeholder="不限"
+              placeholder="最多节数"
               controls-position="right"
-              style="width: 130px"
               @change="val => form.max_weekly_hours = val === 0 ? null : val"
             />
-            <span style="color: #909399; font-size: 13px;">节</span>
+            <span class="hours-range__unit">节</span>
           </div>
-          <div style="color: #909399; font-size: 12px; margin-top: 5px">
-            留空或输入0表示不限制；可只设上限或下限，也可同时设置
+          <div class="form-note">
+            留空或输入 0 表示不限制；可只设上限或下限，也可同时设置
           </div>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSave">保存</el-button>
+        <div class="dialog-footer">
+          <el-button @click="dialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="handleSave">保存</el-button>
+        </div>
       </template>
     </el-dialog>
   </div>
@@ -132,6 +167,8 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import MobileEntityList from '../components/MobileEntityList.vue'
+import { useResponsive } from '../composables/useResponsive'
 import { getTeachers, createTeacher, updateTeacher, deleteTeacher } from '../api/teachers'
 import api from '../api'
 
@@ -150,7 +187,33 @@ const form = ref({
   max_weekly_hours: null
 })
 
-// 当勾选"不参与校本课程"时，清空分组和日期选择
+const { isMobile } = useResponsive()
+
+const getCombinedClassLabel = (teacher) => {
+  if (teacher.exclude_from_combined) {
+    return '不参与'
+  }
+  if (!teacher.combined_class_group_name) {
+    return '自动分组'
+  }
+  return teacher.combined_class_day_display
+    ? `${teacher.combined_class_group_name}（${teacher.combined_class_day_display}）`
+    : teacher.combined_class_group_name
+}
+
+const getWeeklyHoursLabel = (teacher) => {
+  if (teacher.min_weekly_hours != null && teacher.max_weekly_hours != null) {
+    return `${teacher.min_weekly_hours}~${teacher.max_weekly_hours} 节`
+  }
+  if (teacher.max_weekly_hours != null) {
+    return `上限 ${teacher.max_weekly_hours} 节`
+  }
+  if (teacher.min_weekly_hours != null) {
+    return `至少 ${teacher.min_weekly_hours} 节`
+  }
+  return '不限'
+}
+
 watch(() => form.value.exclude_from_combined, (val) => {
   if (val) {
     form.value.combined_class_group = null
@@ -193,7 +256,6 @@ const showDialog = (row = null) => {
 
 const handleSave = async () => {
   try {
-    // 处理空值：确保空字符串转为 null
     const data = {
       ...form.value,
       travel_group: form.value.travel_group || null,
@@ -229,7 +291,61 @@ onMounted(loadData)
 </script>
 
 <style scoped>
-.page-container { background: #fff; padding: 20px; border-radius: 4px; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.page-header h2 { margin: 0; }
+.page-container {
+  background: #fff;
+  padding: 20px;
+  border-radius: 8px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.page-header h2 {
+  margin: 0;
+}
+
+.switch-row {
+  display: grid;
+  gap: 8px;
+}
+
+.hours-range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.hours-range__separator,
+.hours-range__unit {
+  color: #909399;
+  font-size: 13px;
+}
+
+.form-note {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #909399;
+}
+
+@media (max-width: 768px) {
+  .page-container {
+    padding: 16px;
+  }
+
+  .hours-range {
+    grid-template-columns: 1fr;
+  }
+
+  .hours-range__separator,
+  .hours-range__unit {
+    display: none;
+  }
+}
 </style>

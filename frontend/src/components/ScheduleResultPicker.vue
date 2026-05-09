@@ -1,21 +1,29 @@
 <template>
   <div class="result-picker" :class="{ inline }">
-    <!-- 非内嵌模式：摘要 + 打开抽屉按钮 -->
     <template v-if="!inline">
       <div class="picker-summary">
-        <template v-if="currentResult">
-          <el-icon v-if="currentResult.is_favorite" class="star-icon active"><StarFilled /></el-icon>
-          <span class="summary-name">{{ getScheduleResultDisplayName(currentResult) }}</span>
-          <el-tag
-            :type="getScheduleResultStatusType(currentResult.solve_status)"
-            size="small"
-          >
-            {{ getScheduleResultStatusText(currentResult.solve_status) }}
-          </el-tag>
-          <span class="summary-time">{{ currentResult.created_at }}</span>
-          <el-tag v-if="currentResult.is_active" type="success" size="small" effect="dark">使用中</el-tag>
-        </template>
-        <span v-else class="summary-empty">未选择排课结果</span>
+        <div class="picker-summary__info">
+          <template v-if="currentResult">
+            <div class="picker-summary__title-row">
+              <el-icon v-if="currentResult.is_favorite" class="star-icon active"><StarFilled /></el-icon>
+              <span class="summary-name">{{ getScheduleResultDisplayName(currentResult) }}</span>
+              <el-tag
+                :type="getScheduleResultStatusType(currentResult.solve_status)"
+                size="small"
+              >
+                {{ getScheduleResultStatusText(currentResult.solve_status) }}
+              </el-tag>
+              <el-tag v-if="currentResult.is_active" type="success" size="small" effect="dark">
+                使用中
+              </el-tag>
+            </div>
+            <div class="picker-summary__meta">
+              <span class="summary-time">{{ currentResult.created_at }}</span>
+            </div>
+          </template>
+          <span v-else class="summary-empty">未选择排课结果</span>
+        </div>
+
         <el-button type="primary" plain @click="openDrawer">
           <el-icon><Menu /></el-icon>
           <span>切换 / 管理</span>
@@ -26,7 +34,7 @@
         v-model="drawerOpen"
         title="排课结果管理"
         direction="rtl"
-        size="860px"
+        :size="isMobile ? '100%' : '860px'"
         :destroy-on-close="false"
       >
         <ResultTable
@@ -40,7 +48,6 @@
       </el-drawer>
     </template>
 
-    <!-- 内嵌模式 -->
     <ResultTable
       v-else
       ref="tableRef"
@@ -56,6 +63,7 @@
 <script setup>
 import { ref } from 'vue'
 import { Menu, StarFilled } from '@element-plus/icons-vue'
+import { useResponsive } from '../composables/useResponsive'
 import {
   getScheduleResultDisplayName,
   getScheduleResultStatusText,
@@ -74,13 +82,11 @@ const emit = defineEmits(['update:modelValue', 'refresh'])
 
 const drawerOpen = ref(false)
 const tableRef = ref(null)
+const { isMobile } = useResponsive()
 
 const openDrawer = () => {
   drawerOpen.value = true
-  // 抽屉已打开过的话，主动刷一下列表，避免数据陈旧
-  if (tableRef.value) {
-    tableRef.value.refresh()
-  }
+  tableRef.value?.refresh()
 }
 
 const onRowSelect = (row) => {
@@ -93,13 +99,11 @@ const onRowSelectAndClose = (row) => {
 }
 
 const onActivated = (row) => {
-  // 激活后切换到该结果并通知父刷新
   emit('update:modelValue', row.id)
   emit('refresh')
 }
 
 const onTableChanged = (payload = {}) => {
-  // 当前所选被删除 → 通知父清空
   const deleted = payload.deletedIds || []
   if (deleted.includes(props.modelValue)) {
     emit('update:modelValue', null)
@@ -115,25 +119,55 @@ defineExpose({
 <style scoped>
 .picker-summary {
   display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.picker-summary__info {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.picker-summary__title-row {
+  display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
+
+.picker-summary__meta {
+  color: #909399;
+  font-size: 13px;
+}
+
 .summary-name {
   font-weight: 600;
   color: #303133;
 }
+
 .summary-time {
   color: #909399;
   font-size: 13px;
 }
+
 .summary-empty {
   color: #909399;
 }
+
 .star-icon {
   color: #f0a020;
 }
+
 .result-picker.inline {
   width: 100%;
+}
+
+@media (max-width: 768px) {
+  .picker-summary {
+    align-items: stretch;
+  }
 }
 </style>

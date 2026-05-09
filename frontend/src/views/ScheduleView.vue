@@ -1,6 +1,11 @@
 <template>
   <div class="page-container">
-    <h2>课表查看</h2>
+    <div class="page-header">
+      <div>
+        <h2>课表查看</h2>
+        <p class="page-subtitle">手机端默认聚焦单个课表，可按对象切换；桌面端继续支持批量纵览。</p>
+      </div>
+    </div>
 
     <el-card class="filter-card">
       <div class="filter-row">
@@ -10,31 +15,73 @@
           @refresh="onPickerRefresh"
         />
       </div>
-      <el-form :inline="true" style="margin-top: 12px;">
+
+      <el-form :inline="!isMobile" class="filter-form">
         <el-form-item label="查看方式">
           <el-radio-group v-model="viewType" @change="loadAllTimetables">
             <el-radio-button value="class">按班级</el-radio-button>
             <el-radio-button value="teacher">按教师</el-radio-button>
           </el-radio-group>
         </el-form-item>
+
+        <el-form-item v-if="isMobile && mobileTargetOptions.length" label="当前对象">
+          <el-select v-model="selectedTargetId" placeholder="请选择课表对象">
+            <el-option
+              v-for="item in mobileTargetOptions"
+              :key="item.id"
+              :label="item.name"
+              :value="item.id"
+            />
+          </el-select>
+        </el-form-item>
+
         <el-form-item>
-          <el-button type="success" :disabled="!allTimetables.length" @click="exportToExcel">导出 Excel</el-button>
-          <el-button type="primary" :disabled="!allTimetables.length" @click="exportToJSON">导出数据 (JSON)</el-button>
+          <div class="filter-actions">
+            <el-button type="success" :disabled="!allTimetables.length" @click="exportToExcel">
+              导出 Excel
+            </el-button>
+            <el-button type="primary" :disabled="!allTimetables.length" @click="exportToJSON">
+              导出数据 (JSON)
+            </el-button>
+          </div>
         </el-form-item>
       </el-form>
+
+      <div v-if="isMobile && displayedTimetables.length" class="filter-tip">
+        当前仅展示 1 个课表，可切换对象快速查看。
+      </div>
     </el-card>
 
-    <!-- 教师课时柱状图 -->
     <el-card v-if="viewType === 'teacher' && allTimetables.length" class="chart-card">
       <template #header>
-        <span>教师课时分布</span>
+        <div class="section-header-inline">
+          <span>教师课时分布</span>
+          <el-button v-if="isMobile" text @click="chartExpanded = !chartExpanded">
+            {{ chartExpanded ? '收起' : '展开' }}
+          </el-button>
+        </div>
       </template>
-      <v-chart :option="teacherChartOption" style="height: 300px; cursor: pointer;" autoresize @click="onChartClick" />
+
+      <v-chart
+        v-if="!isMobile || chartExpanded"
+        :option="teacherChartOption"
+        :style="{ height: isMobile ? '260px' : '300px', cursor: 'pointer' }"
+        autoresize
+        @click="onChartClick"
+      />
+
+      <div v-else class="chart-card__tip">
+        手机端默认折叠统计图，展开后可点击柱状图定位到对应教师课表。
+      </div>
     </el-card>
 
-    <!-- 所有课表 -->
-    <template v-if="allTimetables.length">
-      <el-card v-for="item in allTimetables" :key="item.id" :ref="el => setTimetableRef(item.id, el)" class="timetable-card">
+    <template v-if="displayedTimetables.length">
+      <el-card
+        v-for="item in displayedTimetables"
+        :key="item.id"
+        :ref="el => setTimetableRef(item.id, el)"
+        class="timetable-card"
+      >
         <template #header>
           <div class="timetable-header">
             <span>{{ item.name }} 课表</span>
@@ -54,59 +101,61 @@
 
     <el-empty v-else-if="selectedResult" description="暂无数据" />
 
-    <!-- 校本课程分组分配表 -->
     <el-card v-if="combinedAssignments && Object.keys(combinedAssignments).length" class="combined-card">
       <template #header>
         <span>校本课程教师分组</span>
       </template>
-      <el-table :data="combinedAssignmentsList" stripe border>
-        <el-table-column prop="groupName" label="分组" width="120" />
-        <el-table-column label="周二">
-          <template #default="{ row }">
-            <el-tag v-for="t in row.tuesday" :key="t" style="margin-right: 5px;">{{ t }}</el-tag>
-            <span v-if="!row.tuesday.length" style="color: #909399">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="周四">
-          <template #default="{ row }">
-            <el-tag v-for="t in row.thursday" :key="t" style="margin-right: 5px;">{{ t }}</el-tag>
-            <span v-if="!row.thursday.length" style="color: #909399">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="合计" width="80" align="center">
-          <template #default="{ row }">
-            {{ row.tuesday.length + row.thursday.length }}
-          </template>
-        </el-table-column>
-      </el-table>
+      <div class="responsive-table-wrapper">
+        <el-table :data="combinedAssignmentsList" stripe border>
+          <el-table-column prop="groupName" label="分组" width="120" />
+          <el-table-column label="周二">
+            <template #default="{ row }">
+              <el-tag v-for="t in row.tuesday" :key="t" class="table-tag">{{ t }}</el-tag>
+              <span v-if="!row.tuesday.length" class="table-empty">-</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="周四">
+            <template #default="{ row }">
+              <el-tag v-for="t in row.thursday" :key="t" class="table-tag">{{ t }}</el-tag>
+              <span v-if="!row.thursday.length" class="table-empty">-</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="合计" width="80" align="center">
+            <template #default="{ row }">
+              {{ row.tuesday.length + row.thursday.length }}
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
     </el-card>
 
-    <!-- 送教分组表 -->
     <el-card v-if="travelGroupList.length" class="combined-card">
       <template #header>
         <span>送教分组</span>
       </template>
-      <el-table :data="travelGroupList" stripe border>
-        <el-table-column prop="name" label="分组" width="120" />
-        <el-table-column prop="dayOffDisplay" label="禁排日" width="100" />
-        <el-table-column label="教师">
-          <template #default="{ row }">
-            <el-tag v-for="t in row.teachers" :key="t" style="margin-right: 5px;">{{ t }}</el-tag>
-            <span v-if="!row.teachers.length" style="color: #909399">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="人数" width="80" align="center">
-          <template #default="{ row }">
-            {{ row.teachers.length }}
-          </template>
-        </el-table-column>
-      </el-table>
+      <div class="responsive-table-wrapper">
+        <el-table :data="travelGroupList" stripe border>
+          <el-table-column prop="name" label="分组" width="120" />
+          <el-table-column prop="dayOffDisplay" label="禁排日" width="100" />
+          <el-table-column label="教师">
+            <template #default="{ row }">
+              <el-tag v-for="t in row.teachers" :key="t" class="table-tag">{{ t }}</el-tag>
+              <span v-if="!row.teachers.length" class="table-empty">-</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="人数" width="80" align="center">
+            <template #default="{ row }">
+              {{ row.teachers.length }}
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
     </el-card>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import * as XLSX from 'xlsx'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -115,9 +164,12 @@ import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/compon
 import VChart from 'vue-echarts'
 import TimetableGrid from '../components/TimetableGrid.vue'
 import ScheduleResultPicker from '../components/ScheduleResultPicker.vue'
+import { useResponsive } from '../composables/useResponsive'
 import {
-  getClassTimetable, getTeacherTimetable,
-  getActiveSchedule, getScheduleResult
+  getClassTimetable,
+  getTeacherTimetable,
+  getActiveSchedule,
+  getScheduleResult
 } from '../api/scheduler'
 import { getClasses } from '../api/classes'
 import { getTeachers } from '../api/teachers'
@@ -125,7 +177,6 @@ import { getTravelGroups, getAssignments } from '../api/resources'
 import { getSubjects } from '../api/subjects'
 import { buildScheduleResultFileLabel } from '../utils/scheduleResults'
 
-// 注册 ECharts 组件
 use([CanvasRenderer, BarChart, GridComponent, TooltipComponent, LegendComponent])
 
 const classes = ref([])
@@ -135,7 +186,11 @@ const currentResult = ref(null)
 const viewType = ref('class')
 const allTimetables = ref([])
 const travelGroups = ref([])
+const selectedTargetId = ref(null)
+const chartExpanded = ref(false)
 const timetableRefs = {}
+
+const { isMobile } = useResponsive()
 
 const setTimetableRef = (id, el) => {
   if (el) {
@@ -145,17 +200,34 @@ const setTimetableRef = (id, el) => {
   }
 }
 
-const targets = computed(() => viewType.value === 'class' ? classes.value : teachers.value)
+const targets = computed(() => (
+  viewType.value === 'class' ? classes.value : teachers.value
+))
+
+const mobileTargetOptions = computed(() => targets.value.map(item => ({
+  id: item.id,
+  name: item.name
+})))
+
+const displayedTimetables = computed(() => {
+  if (!isMobile.value) {
+    return allTimetables.value
+  }
+  if (!selectedTargetId.value) {
+    return allTimetables.value.slice(0, 1)
+  }
+  return allTimetables.value.filter(item => item.id === selectedTargetId.value)
+})
+
 const combinedAssignments = computed(() => currentResult.value?.combined_class_assignments || {})
 
-// 按课时量从大到小排序（图表用）
-const sortedTimetables = computed(() =>
+const sortedTimetables = computed(() => (
   [...allTimetables.value].sort((a, b) => b.stats.total - a.stats.total)
-)
+))
 
-// 教师课时柱状图配置
 const teacherChartOption = computed(() => {
   const sorted = sortedTimetables.value
+  const compact = isMobile.value
 
   return {
     tooltip: {
@@ -172,17 +244,17 @@ const teacherChartOption = computed(() => {
       }
     },
     grid: {
-      left: '3%',
-      right: '4%',
-      bottom: '3%',
+      left: compact ? '8%' : '3%',
+      right: compact ? '6%' : '4%',
+      bottom: compact ? '16%' : '3%',
       containLabel: true
     },
     xAxis: {
       type: 'category',
       data: sorted.map(t => t.name),
       axisLabel: {
-        rotate: 30,
-        fontSize: 12
+        rotate: compact ? 45 : 30,
+        fontSize: compact ? 10 : 12
       }
     },
     yAxis: {
@@ -212,7 +284,7 @@ const teacherChartOption = computed(() => {
         data: sorted.map(t => t.stats.meeting),
         itemStyle: { color: '#e6a23c' },
         label: {
-          show: true,
+          show: !compact,
           position: 'top',
           formatter: (params) => sorted[params.dataIndex].stats.total,
           fontSize: 12,
@@ -227,22 +299,24 @@ const teacherChartOption = computed(() => {
   }
 })
 
-// 点击柱状图跳转到对应教师课表
-const onChartClick = (params) => {
+const onChartClick = async (params) => {
   const sorted = sortedTimetables.value
   const item = sorted[params.dataIndex]
   if (!item) return
+
+  if (isMobile.value) {
+    selectedTargetId.value = item.id
+    await nextTick()
+  }
+
   const el = timetableRefs[item.id]
   if (el?.$el) {
     el.$el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 }
 
-// 转换为表格数据格式
 const combinedAssignmentsList = computed(() => {
-  // 新格式: {"分组名": {"周二": ["教师"], "周四": ["教师"]}, ...}
   return Object.entries(combinedAssignments.value).map(([groupName, dayData]) => {
-    // 兼容新旧格式
     if (typeof dayData === 'object' && !Array.isArray(dayData)) {
       return {
         groupName,
@@ -250,7 +324,6 @@ const combinedAssignmentsList = computed(() => {
         thursday: dayData['周四'] || []
       }
     }
-    // 旧格式兼容（数组形式）
     return {
       groupName,
       tuesday: dayData || [],
@@ -259,7 +332,6 @@ const combinedAssignmentsList = computed(() => {
   })
 })
 
-// 送教分组表格数据
 const travelGroupList = computed(() => {
   const teachersByGroup = {}
   for (const t of teachers.value) {
@@ -277,7 +349,6 @@ const travelGroupList = computed(() => {
   }))
 })
 
-// 计算单个课表的周课时统计
 const calcStats = (entries) => {
   const total = entries.length
   let meeting = 0
@@ -301,14 +372,15 @@ const calcStats = (entries) => {
 }
 
 const loadData = async () => {
-  const [classList, teacherList, travelGroupList] = await Promise.all([
-    getClasses(), getTeachers(), getTravelGroups()
+  const [classList, teacherList, travelGroupListData] = await Promise.all([
+    getClasses(),
+    getTeachers(),
+    getTravelGroups()
   ])
   classes.value = classList
   teachers.value = teacherList
-  travelGroups.value = travelGroupList
+  travelGroups.value = travelGroupListData
 
-  // 初始：尝试取当前激活的排课结果
   try {
     const active = await getActiveSchedule()
     currentResult.value = active
@@ -332,11 +404,24 @@ const loadCurrentResult = async (id) => {
 }
 
 const onPickerRefresh = async () => {
-  // 抽屉里做过改名/星标等操作 → 同步刷新摘要
   if (selectedResult.value) {
     await loadCurrentResult(selectedResult.value)
   }
 }
+
+watch(targets, (list) => {
+  if (!list.length) {
+    selectedTargetId.value = null
+    return
+  }
+  if (!list.some(item => item.id === selectedTargetId.value)) {
+    selectedTargetId.value = list[0].id
+  }
+}, { immediate: true })
+
+watch(viewType, () => {
+  chartExpanded.value = false
+})
 
 watch(selectedResult, async (nextId, prevId) => {
   if (nextId === prevId) return
@@ -353,20 +438,19 @@ const loadAllTimetables = async () => {
   const targetList = targets.value
   const fetchFn = viewType.value === 'class' ? getClassTimetable : getTeacherTimetable
 
-  // 并行加载所有课表
-  const promises = targetList.map(async (t) => {
+  const promises = targetList.map(async (target) => {
     try {
-      const entries = await fetchFn(selectedResult.value, t.id)
+      const entries = await fetchFn(selectedResult.value, target.id)
       return {
-        id: t.id,
-        name: t.name,
+        id: target.id,
+        name: target.name,
         entries,
         stats: calcStats(entries)
       }
-    } catch (e) {
+    } catch {
       return {
-        id: t.id,
-        name: t.name,
+        id: target.id,
+        name: target.name,
         entries: [],
         stats: { total: 0, normal: 0, combined: 0, meeting: 0 }
       }
@@ -374,6 +458,9 @@ const loadAllTimetables = async () => {
   })
 
   allTimetables.value = await Promise.all(promises)
+  if (!allTimetables.value.some(item => item.id === selectedTargetId.value)) {
+    selectedTargetId.value = allTimetables.value[0]?.id ?? null
+  }
 }
 
 const exportToExcel = () => {
@@ -410,12 +497,11 @@ const exportToExcel = () => {
     }
 
     const ws = XLSX.utils.aoa_to_sheet(rows)
-    // 设置列宽
     ws['!cols'] = [
       { wch: 6 },
       ...Array(maxPeriods).fill({ wch: 14 })
     ]
-    const sheetName = item.name.substring(0, 31) // Excel sheet 名最长 31 字符
+    const sheetName = item.name.substring(0, 31)
     XLSX.utils.book_append_sheet(wb, ws, sheetName)
   }
 
@@ -430,7 +516,6 @@ const exportToJSON = async () => {
     getAssignments()
   ])
 
-  // 汇总所有班级的课表条目（按班级维度，去重完整）
   const classTimetables = viewType.value === 'class'
     ? allTimetables.value
     : await Promise.all(
@@ -438,28 +523,29 @@ const exportToJSON = async () => {
           try {
             const entries = await getClassTimetable(selectedResult.value, c.id)
             return { id: c.id, name: c.name, entries }
-          } catch { return { id: c.id, name: c.name, entries: [] } }
+          } catch {
+            return { id: c.id, name: c.name, entries: [] }
+          }
         })
       )
 
-  // 合并所有 entries，用 set 去重（同一个 entry 可能出现在班级和教师视图中）
   const allEntries = []
   const seen = new Set()
-  for (const t of classTimetables) {
-    for (const e of t.entries) {
-      const key = `${e.day}-${e.period}-${e.school_class ?? t.id}`
+  for (const timetable of classTimetables) {
+    for (const entry of timetable.entries) {
+      const key = `${entry.day}-${entry.period}-${entry.school_class ?? timetable.id}`
       if (!seen.has(key)) {
         seen.add(key)
         allEntries.push({
-          day: e.day,
-          period: e.period,
-          classId: e.school_class,
-          className: e.school_class_name,
-          teacherId: e.teacher,
-          teacherName: e.teacher_name,
-          subjectId: e.subject,
-          subjectName: e.subject_name,
-          isLocked: e.is_locked || false
+          day: entry.day,
+          period: entry.period,
+          classId: entry.school_class,
+          className: entry.school_class_name,
+          teacherId: entry.teacher,
+          teacherName: entry.teacher_name,
+          subjectId: entry.subject,
+          subjectName: entry.subject_name,
+          isLocked: entry.is_locked || false
         })
       }
     }
@@ -523,11 +609,11 @@ const exportToJSON = async () => {
 
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
+  const link = document.createElement('a')
+  link.href = url
   const fileLabel = buildScheduleResultFileLabel(currentResult.value, `课表_${selectedResult.value}`)
-  a.download = `课表数据_${fileLabel}.json`
-  a.click()
+  link.download = `课表数据_${fileLabel}.json`
+  link.click()
   URL.revokeObjectURL(url)
 }
 
@@ -535,23 +621,123 @@ onMounted(loadData)
 </script>
 
 <style scoped>
-.page-container { background: #fff; padding: 20px; border-radius: 4px; }
-.page-container h2 { margin-bottom: 20px; }
-.filter-card { margin-bottom: 20px; }
-.chart-card { margin-bottom: 20px; }
-.timetable-card { margin-top: 20px; }
-.combined-card { margin-top: 20px; }
+.page-container {
+  background: #fff;
+  padding: 20px;
+  border-radius: 8px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.page-header h2 {
+  margin: 0;
+}
+
+.page-subtitle {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #606266;
+}
+
+.filter-card,
+.chart-card {
+  margin-bottom: 20px;
+}
+
+.timetable-card,
+.combined-card {
+  margin-top: 20px;
+}
+
+.filter-form {
+  margin-top: 12px;
+}
+
+.filter-row {
+  margin-bottom: 4px;
+}
+
+.filter-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.filter-tip {
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #909399;
+}
+
+.section-header-inline,
 .timetable-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
 }
+
 .weekly-hours {
   font-size: 14px;
   color: #606266;
   font-weight: normal;
 }
-.filter-row {
-  margin-bottom: 4px;
+
+.chart-card__tip {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #606266;
+}
+
+.table-tag {
+  margin-right: 6px;
+  margin-bottom: 6px;
+}
+
+.table-empty {
+  color: #909399;
+}
+
+@media (max-width: 768px) {
+  .page-container {
+    padding: 16px;
+  }
+
+  .filter-form :deep(.el-form-item) {
+    width: 100%;
+    margin-right: 0;
+  }
+
+  .filter-form :deep(.el-form-item__content) {
+    width: 100%;
+  }
+
+  .filter-form :deep(.el-radio-group) {
+    display: flex;
+    width: 100%;
+  }
+
+  .filter-form :deep(.el-radio-button) {
+    flex: 1;
+  }
+
+  .filter-actions,
+  .section-header-inline,
+  .timetable-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filter-actions :deep(.el-button) {
+    margin-left: 0;
+  }
 }
 </style>

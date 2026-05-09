@@ -7,21 +7,55 @@
       </el-button>
     </div>
 
-    <el-table :data="blockedTimes" stripe border>
-      <el-table-column prop="id" label="ID" width="60" />
-      <el-table-column prop="teacher_name" label="教师姓名" />
-      <el-table-column prop="day_display" label="星期" />
-      <el-table-column prop="period_type_display" label="时段" />
-      <el-table-column label="操作" width="150">
-        <template #default="{ row }">
-          <el-button size="small" @click="showDialog(row)">编辑</el-button>
-          <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+    <MobileEntityList v-if="isMobile" :items="blockedTimes" empty-description="暂无禁排数据">
+      <template #title="{ item }">
+        {{ item.teacher_name }}
+      </template>
+      <template #subtitle="{ item }">
+        {{ item.day_display }} · {{ item.period_type_display }}
+      </template>
+      <template #meta="{ item }">
+        <div class="mobile-meta-list">
+          <div class="mobile-meta-list__item">
+            <span class="mobile-meta-list__label">记录编号</span>
+            <span class="mobile-meta-list__value">ID {{ item.id }}</span>
+          </div>
+        </div>
+      </template>
+      <template #actions="{ item }">
+        <el-button @click="showDialog(item)">编辑</el-button>
+        <el-button type="danger" plain @click="handleDelete(item)">删除</el-button>
+      </template>
+    </MobileEntityList>
 
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑禁排时段' : '添加禁排时段'" width="500px">
-      <el-form :model="form" label-width="100px">
+    <div v-else class="responsive-table-wrapper">
+      <el-table :data="blockedTimes" stripe border>
+        <el-table-column prop="id" label="ID" width="60" />
+        <el-table-column prop="teacher_name" label="教师姓名" min-width="140" />
+        <el-table-column prop="day_display" label="星期" width="90" />
+        <el-table-column prop="period_type_display" label="时段" width="120" />
+        <el-table-column label="操作" width="150" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" @click="showDialog(row)">编辑</el-button>
+            <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
+    <el-dialog
+      v-model="dialogVisible"
+      :title="editingId ? '编辑禁排时段' : '添加禁排时段'"
+      :fullscreen="isMobile"
+      :width="isMobile ? undefined : '500px'"
+      class="responsive-dialog"
+    >
+      <el-form
+        :model="form"
+        :label-position="isMobile ? 'top' : 'right'"
+        label-width="100px"
+        class="responsive-form"
+      >
         <el-form-item label="教师" required>
           <el-select v-model="form.teacher" filterable placeholder="请选择教师">
             <el-option
@@ -50,8 +84,10 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSave">保存</el-button>
+        <div class="dialog-footer">
+          <el-button @click="dialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="handleSave">保存</el-button>
+        </div>
       </template>
     </el-dialog>
   </div>
@@ -60,6 +96,8 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import MobileEntityList from '../components/MobileEntityList.vue'
+import { useResponsive } from '../composables/useResponsive'
 import { getBlockedTimes, createBlockedTime, updateBlockedTime, deleteBlockedTime } from '../api/resources'
 import { getTeachers } from '../api/teachers'
 
@@ -68,6 +106,8 @@ const teachers = ref([])
 const dialogVisible = ref(false)
 const editingId = ref(null)
 const form = ref({ teacher: null, day: 0, period_type: 'am' })
+
+const { isMobile } = useResponsive()
 
 const loadData = async () => {
   blockedTimes.value = await getBlockedTimes()
@@ -80,7 +120,11 @@ const loadTeachers = async () => {
 const showDialog = (row = null) => {
   if (row) {
     editingId.value = row.id
-    form.value = { teacher: row.teacher, day: row.day, period_type: row.period_type }
+    form.value = {
+      teacher: row.teacher,
+      day: row.day,
+      period_type: row.period_type
+    }
   } else {
     editingId.value = null
     form.value = { teacher: null, day: 0, period_type: 'am' }
@@ -126,7 +170,27 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.page-container { background: #fff; padding: 20px; border-radius: 4px; }
-.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.page-header h2 { margin: 0; }
+.page-container {
+  background: #fff;
+  padding: 20px;
+  border-radius: 8px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.page-header h2 {
+  margin: 0;
+}
+
+@media (max-width: 768px) {
+  .page-container {
+    padding: 16px;
+  }
+}
 </style>

@@ -7,7 +7,7 @@
           placeholder="按名称搜索"
           clearable
           size="small"
-          style="width: 180px;"
+          class="toolbar-control toolbar-control--search"
           @input="onFilterChange"
         />
         <el-select
@@ -15,7 +15,7 @@
           placeholder="所有状态"
           clearable
           size="small"
-          style="width: 130px;"
+          class="toolbar-control toolbar-control--status"
           @change="onFilterChange"
         >
           <el-option
@@ -28,10 +28,10 @@
         <el-switch
           v-model="favoriteOnly"
           active-text="只看收藏"
-          size="default"
           @change="onFilterChange"
         />
       </div>
+
       <div class="toolbar-right">
         <el-button
           size="small"
@@ -65,83 +65,167 @@
       </div>
     </div>
 
-    <el-table
-      ref="tableRef"
-      v-loading="loading"
-      :data="items"
-      stripe
-      border
-      highlight-current-row
-      :row-class-name="rowClassName"
-      @selection-change="onSelectionChange"
-      @row-click="onRowClick"
-    >
-      <el-table-column type="selection" width="44" />
-      <el-table-column label="★" width="48" align="center">
-        <template #default="{ row }">
-          <el-button
-            link
-            class="star-btn"
-            :class="{ active: row.is_favorite }"
-            @click.stop="onToggleFavorite(row)"
-          >
-            <el-icon><StarFilled v-if="row.is_favorite" /><Star v-else /></el-icon>
-          </el-button>
-        </template>
-      </el-table-column>
-      <el-table-column label="名称" min-width="180">
-        <template #default="{ row }">
-          <span :class="{ 'row-selected-name': row.id === selectedId }">
-            {{ getScheduleResultDisplayName(row) }}
-          </span>
-        </template>
-      </el-table-column>
-      <el-table-column label="状态" width="100">
-        <template #default="{ row }">
-          <el-tag
-            :type="getScheduleResultStatusType(row.solve_status)"
-            size="small"
-          >
-            {{ getScheduleResultStatusText(row.solve_status) }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="创建时间" prop="created_at" width="170" />
-      <el-table-column label="条目数" prop="entry_count" width="80" align="center" />
-      <el-table-column label="当前" width="80" align="center">
-        <template #default="{ row }">
-          <el-tag v-if="row.is_active" type="success" size="small" effect="dark">使用中</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" :width="showActivateAction ? 220 : 160" fixed="right">
-        <template #default="{ row }">
-          <el-button
-            v-if="showActivateAction && !row.is_active && canActivate(row)"
-            size="small"
-            :loading="actionLoading"
-            @click.stop="onActivate(row)"
-          >
-            激活
-          </el-button>
-          <el-button
-            size="small"
-            :loading="actionLoading"
-            @click.stop="onRename(row)"
-          >
-            改名
-          </el-button>
-          <el-button
-            size="small"
-            type="danger"
-            plain
-            :loading="actionLoading"
-            @click.stop="onDeleteRow(row)"
-          >
-            删除
-          </el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+    <div v-if="isMobile" class="mobile-result-list" v-loading="loading">
+      <el-empty v-if="!items.length && !loading" description="暂无排课结果" />
+
+      <template v-else>
+        <el-card
+          v-for="row in items"
+          :key="row.id"
+          class="mobile-result-card"
+          shadow="hover"
+          :class="{ 'mobile-result-card--selected': row.id === selectedId }"
+        >
+          <div class="mobile-result-card__top">
+            <el-checkbox
+              :model-value="isSelected(row.id)"
+              @change="checked => onCardSelectionChange(row, checked)"
+              @click.stop
+            />
+            <el-button
+              link
+              class="star-btn"
+              :class="{ active: row.is_favorite }"
+              @click.stop="onToggleFavorite(row)"
+            >
+              <el-icon><StarFilled v-if="row.is_favorite" /><Star v-else /></el-icon>
+            </el-button>
+          </div>
+
+          <button type="button" class="mobile-result-card__summary" @click="emit('select-row', row)">
+            <div class="mobile-result-card__name">
+              {{ getScheduleResultDisplayName(row) }}
+            </div>
+            <div class="mobile-result-card__meta">
+              <el-tag
+                :type="getScheduleResultStatusType(row.solve_status)"
+                size="small"
+              >
+                {{ getScheduleResultStatusText(row.solve_status) }}
+              </el-tag>
+              <el-tag v-if="row.is_active" type="success" size="small" effect="dark">使用中</el-tag>
+            </div>
+            <div class="mobile-meta-list">
+              <div class="mobile-meta-list__item">
+                <span class="mobile-meta-list__label">创建时间</span>
+                <span class="mobile-meta-list__value">{{ row.created_at }}</span>
+              </div>
+              <div class="mobile-meta-list__item">
+                <span class="mobile-meta-list__label">条目数</span>
+                <span class="mobile-meta-list__value">{{ row.entry_count }}</span>
+              </div>
+            </div>
+          </button>
+
+          <div class="mobile-result-card__actions">
+            <el-button
+              v-if="showActivateAction && !row.is_active && canActivate(row)"
+              size="small"
+              :loading="actionLoading"
+              @click.stop="onActivate(row)"
+            >
+              激活
+            </el-button>
+            <el-button
+              size="small"
+              :loading="actionLoading"
+              @click.stop="onRename(row)"
+            >
+              改名
+            </el-button>
+            <el-button
+              size="small"
+              type="danger"
+              plain
+              :loading="actionLoading"
+              @click.stop="onDeleteRow(row)"
+            >
+              删除
+            </el-button>
+          </div>
+        </el-card>
+      </template>
+    </div>
+
+    <div v-else class="responsive-table-wrapper">
+      <el-table
+        ref="tableRef"
+        v-loading="loading"
+        :data="items"
+        stripe
+        border
+        highlight-current-row
+        :row-class-name="rowClassName"
+        @selection-change="onSelectionChange"
+        @row-click="onRowClick"
+      >
+        <el-table-column type="selection" width="44" />
+        <el-table-column label="★" width="48" align="center">
+          <template #default="{ row }">
+            <el-button
+              link
+              class="star-btn"
+              :class="{ active: row.is_favorite }"
+              @click.stop="onToggleFavorite(row)"
+            >
+              <el-icon><StarFilled v-if="row.is_favorite" /><Star v-else /></el-icon>
+            </el-button>
+          </template>
+        </el-table-column>
+        <el-table-column label="名称" min-width="180">
+          <template #default="{ row }">
+            <span :class="{ 'row-selected-name': row.id === selectedId }">
+              {{ getScheduleResultDisplayName(row) }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag
+              :type="getScheduleResultStatusType(row.solve_status)"
+              size="small"
+            >
+              {{ getScheduleResultStatusText(row.solve_status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="创建时间" prop="created_at" width="170" />
+        <el-table-column label="条目数" prop="entry_count" width="80" align="center" />
+        <el-table-column label="当前" width="80" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.is_active" type="success" size="small" effect="dark">使用中</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" :width="showActivateAction ? 220 : 160" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              v-if="showActivateAction && !row.is_active && canActivate(row)"
+              size="small"
+              :loading="actionLoading"
+              @click.stop="onActivate(row)"
+            >
+              激活
+            </el-button>
+            <el-button
+              size="small"
+              :loading="actionLoading"
+              @click.stop="onRename(row)"
+            >
+              改名
+            </el-button>
+            <el-button
+              size="small"
+              type="danger"
+              plain
+              :loading="actionLoading"
+              @click.stop="onDeleteRow(row)"
+            >
+              删除
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
 
     <div class="pagination-bar">
       <el-pagination
@@ -149,7 +233,10 @@
         v-model:page-size="pageSize"
         :page-sizes="[20, 50, 100, 200]"
         :total="total"
-        layout="total, sizes, prev, pager, next, jumper"
+        :layout="paginationLayout"
+        :pager-count="isMobile ? 5 : 7"
+        small
+        background
         @size-change="onPageSizeChange"
         @current-change="fetchData"
       />
@@ -158,9 +245,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Star, StarFilled, Delete } from '@element-plus/icons-vue'
+import { useResponsive } from '../composables/useResponsive'
 import {
   getScheduleResults, updateScheduleResult, deleteScheduleResult,
   bulkDeleteScheduleResults, activateResult, toggleFavoriteScheduleResult
@@ -186,6 +274,7 @@ const props = defineProps({
 
 const emit = defineEmits(['select-row', 'activated', 'changed'])
 
+const { isMobile } = useResponsive()
 const items = ref([])
 const total = ref(0)
 const page = ref(1)
@@ -196,8 +285,15 @@ const search = ref('')
 const favoriteOnly = ref(false)
 const statusFilter = ref('')
 const selectedRows = ref([])
+const tableRef = ref(null)
 
 let searchDebounce = null
+
+const paginationLayout = computed(() => (
+  isMobile.value
+    ? 'prev, pager, next'
+    : 'total, sizes, prev, pager, next, jumper'
+))
 
 const isDialogCancelled = (error) => (
   error === 'cancel' || error === 'close' ||
@@ -212,12 +308,19 @@ const buildParams = () => {
   return params
 }
 
+const clearSelection = async () => {
+  selectedRows.value = []
+  await nextTick()
+  tableRef.value?.clearSelection?.()
+}
+
 const fetchData = async () => {
   loading.value = true
   try {
     const res = await getScheduleResults(buildParams())
     items.value = res.results || []
     total.value = res.count || 0
+    await clearSelection()
   } catch {
     ElMessage.error('加载排课结果失败')
   } finally {
@@ -248,6 +351,18 @@ const rowClassName = ({ row }) => (
 
 const onSelectionChange = (rows) => {
   selectedRows.value = rows
+}
+
+const isSelected = (rowId) => selectedRows.value.some(row => row.id === rowId)
+
+const onCardSelectionChange = (row, checked) => {
+  if (checked) {
+    if (!isSelected(row.id)) {
+      selectedRows.value = [...selectedRows.value, row]
+    }
+    return
+  }
+  selectedRows.value = selectedRows.value.filter(item => item.id !== row.id)
 }
 
 const onRowClick = (row, column) => {
@@ -298,7 +413,7 @@ const onDeleteRow = async (row) => {
   const name = getScheduleResultDisplayName(row)
   try {
     await ElMessageBox.confirm(
-      `确定删除"${name}"吗？删除后该次排课结果及课表条目都会一起移除。`,
+      `确定删除“${name}”吗？删除后该次排课结果及课表条目都会一起移除。`,
       '删除课表',
       { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
     )
@@ -346,7 +461,7 @@ const onBulkFavorite = async (isFavorite) => {
         .filter(r => r.is_favorite !== isFavorite)
         .map(r => updateScheduleResult(r.id, { is_favorite: isFavorite }))
     )
-    ElMessage.success(isFavorite ? '已标为收藏' : '已取消收藏')
+    ElMessage.success(isFavorite ? '已标记为收藏' : '已取消收藏')
     await fetchData()
     emit('changed')
   } catch {
@@ -380,34 +495,122 @@ onMounted(fetchData)
 .toolbar {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   margin-bottom: 12px;
   flex-wrap: wrap;
 }
-.toolbar-left, .toolbar-right {
+
+.toolbar-left,
+.toolbar-right {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
+
+.toolbar-control--search {
+  width: 180px;
+}
+
+.toolbar-control--status {
+  width: 140px;
+}
+
+.mobile-result-list {
+  display: grid;
+  gap: 12px;
+}
+
+.mobile-result-card {
+  border-radius: 14px;
+}
+
+.mobile-result-card--selected {
+  border-color: #409eff;
+  box-shadow: 0 0 0 1px rgba(64, 158, 255, 0.24);
+}
+
+.mobile-result-card__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.mobile-result-card__summary {
+  width: 100%;
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mobile-result-card__name {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: #303133;
+}
+
+.mobile-result-card__meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mobile-result-card__actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.mobile-result-card__actions :deep(.el-button) {
+  margin-left: 0;
+}
+
 .star-btn {
   color: #c0c4cc;
   font-size: 18px;
   padding: 4px;
 }
+
 .star-btn.active {
   color: #f0a020;
 }
+
 .row-selected-name {
   font-weight: 600;
   color: #409eff;
 }
+
 :deep(.current-selected-row) {
   background-color: #ecf5ff !important;
 }
+
 .pagination-bar {
-  margin-top: 12px;
+  margin-top: 16px;
   display: flex;
   justify-content: flex-end;
+}
+
+@media (max-width: 768px) {
+  .toolbar-left,
+  .toolbar-right,
+  .pagination-bar {
+    width: 100%;
+  }
+
+  .toolbar-control--search,
+  .toolbar-control--status {
+    width: 100%;
+  }
+
+  .pagination-bar {
+    justify-content: center;
+  }
 }
 </style>
