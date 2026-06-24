@@ -1,15 +1,8 @@
 <template>
-  <div class="app-shell">
-    <transition name="desktop-nav-mask">
-      <button
-        v-if="!isMobile && desktopNavOpen"
-        type="button"
-        class="desktop-nav-mask"
-        aria-label="关闭侧边导航"
-        @click="desktopNavOpen = false"
-      />
-    </transition>
-
+  <div
+    class="app-shell"
+    :class="{ 'app-shell--desktop-open': !isMobile && desktopNavOpen }"
+  >
     <aside
       v-if="!isMobile"
       class="app-shell__aside"
@@ -127,6 +120,7 @@ body {
 }
 
 .app-shell {
+  --app-sidebar-width: 220px;
   min-height: 100vh;
   background: linear-gradient(180deg, #f6f8fb 0%, #eef2f6 100%);
 }
@@ -136,7 +130,7 @@ body {
   top: 0;
   left: 0;
   z-index: 34;
-  width: 220px;
+  width: var(--app-sidebar-width);
   height: 100vh;
   background: #304156;
   box-shadow: 12px 0 30px rgba(34, 52, 74, 0.12);
@@ -151,6 +145,11 @@ body {
 
 .app-shell__body {
   min-width: 0;
+  transition: padding-left 0.24s ease;
+}
+
+.app-shell--desktop-open .app-shell__body {
+  padding-left: var(--app-sidebar-width);
 }
 
 .logo {
@@ -202,17 +201,7 @@ body {
 }
 
 .desktop-nav-toggle--open {
-  left: 234px;
-}
-
-.desktop-nav-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 33;
-  border: 0;
-  background: rgba(28, 42, 59, 0.18);
-  backdrop-filter: blur(2px);
-  cursor: pointer;
+  left: calc(var(--app-sidebar-width) - 22px);
 }
 
 .app-main {
@@ -287,16 +276,6 @@ body {
 .app-nav-drawer .el-drawer__body {
   padding: 0;
   background: #304156;
-}
-
-.desktop-nav-mask-enter-active,
-.desktop-nav-mask-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.desktop-nav-mask-enter-from,
-.desktop-nav-mask-leave-to {
-  opacity: 0;
 }
 
 @media (max-width: 768px) {
