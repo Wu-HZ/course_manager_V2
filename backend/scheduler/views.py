@@ -1,4 +1,5 @@
 from collections import Counter, defaultdict
+import math
 
 from django.db import transaction
 from django.db.models import Count, Q
@@ -17,6 +18,7 @@ from .serializers import (
     ScheduleResultUpdateSerializer, ScheduleEntrySerializer
 )
 from .engine import run_scheduler
+from .time_slots import TOTAL_SLOTS
 
 
 class ScheduleResultPagination(PageNumberPagination):
@@ -214,6 +216,45 @@ def _build_precheck_payload():
                 'weekly_hours': subject.weekly_hours,
             })
 
+    # 教师授课容量分析：合格教师数 × 每人最多带班数 是否覆盖适用班级数
+    subject_demand = Counter()
+    for school_class, subject in applicable_pairs:
+        subject_demand[subject.id] += 1
+
+    capacity_shortages = []
+    for subject in required_subjects:
+        demand = subject_demand.get(subject.id, 0)
+        qualified_count = len(qualification_map.get(subject.id, set()))
+        # qualified_count == 0 已由 subjects_without_qualification 单独处理，这里跳过避免重复
+        if demand == 0 or qualified_count == 0:
+            continue
+        max_classes = max(subject.max_teacher_classes, 1)
+        capacity = qualified_count * max_classes
+        if capacity < demand:
+            capacity_shortages.append({
+                'subject_name': subject.name,
+                'demand': demand,
+                'qualified_count': qualified_count,
+                'max_classes': max_classes,
+                'capacity': capacity,
+                'needed': math.ceil((demand - capacity) / max_classes),
+            })
+
+    # 总量供需下界：全校普通课程课时 vs 教师可授时段
+    normal_subject_hours = sum(subject.weekly_hours for _, subject in applicable_pairs)
+    per_teacher_max = max(TOTAL_SLOTS - 1, 1)  # 去掉周五班会那节后，单个教师每周可授时段上界
+    estimated_min_teachers = (
+        math.ceil(normal_subject_hours / per_teacher_max) if normal_subject_hours else 0
+    )
+    total_teacher_supply = sum(
+        min(
+            teacher.max_weekly_hours if teacher.max_weekly_hours is not None else per_teacher_max,
+            per_teacher_max,
+        )
+        for teacher in teachers
+    )
+    supply_gap = normal_subject_hours - total_teacher_supply
+
     blocking_issues = []
     if not teachers:
         blocking_issues.append(_make_issue(
@@ -279,6 +320,21 @@ def _build_precheck_payload():
             _make_actions(('去课表锁定', '/schedule-locks')),
         ))
 
+    if capacity_shortages:
+        shortage_preview = _preview_names([
+            f"{item['subject_name']}（需{item['demand']}班/可供{item['capacity']}，约缺{item['needed']}位）"
+            for item in capacity_shortages
+        ])
+        blocking_issues.append(_make_issue(
+            'teacher_capacity_shortage',
+            '部分课程的合格教师不足以覆盖所有班级',
+            (
+                f'以下课程按“合格教师数 × 每位教师最多带班数”计算，能覆盖的班级数少于需求：{shortage_preview}。'
+                '请为这些课程增加合格教师、调高课程的“单师最多班数”，或减少开课班级。'
+            ),
+            _make_actions(('去教师资质', '/qualifications'), ('去教师管理', '/teachers')),
+        ))
+
     warning_issues = []
     if expected_assignment_pairs_count and missing_assignment_pairs:
         warning_issues.append(_make_issue(
@@ -293,6 +349,17 @@ def _build_precheck_payload():
             '尚未设置教师禁排时段',
             '如果教师有外出、教研、跨校或固定半天/全天不能上课，请先在“教师禁排”里补充。',
             _make_actions(('去教师禁排', '/blocked-times')),
+        ))
+    if supply_gap > 0:
+        warning_issues.append(_make_issue(
+            'teacher_supply_gap',
+            '教师总可授课时可能不足',
+            (
+                f'全校普通课程共需 {normal_subject_hours} 课时，但现有 {len(teachers)} 位教师按每人最多约 '
+                f'{per_teacher_max} 节估算，合计可授约 {total_teacher_supply} 课时，缺口约 {supply_gap} 课时'
+                f'（约需再增 {math.ceil(supply_gap / per_teacher_max)} 位教师）。这是粗略估算，实际还受禁排、资质和约束影响。'
+            ),
+            _make_actions(('去教师管理', '/teachers')),
         ))
     can_run = len(blocking_issues) == 0
 
@@ -534,6 +601,15 @@ def _build_precheck_payload():
             'title': '班级课程锁定未超周课时',
             'detail': '当前每个班级课程的锁定数量都没有超过该课程周课时。',
         })
+    if required_subjects and not capacity_shortages and supply_gap <= 0:
+        passed_checks.append({
+            'key': 'teacher_capacity',
+            'title': '教师授课容量充足',
+            'detail': (
+                f'各课程合格教师可覆盖所有班级，且教师总可授课时（约 {total_teacher_supply} 节）'
+                f'不低于普通课程需求（{normal_subject_hours} 节）。'
+            ),
+        })
 
     countable_steps = [step for step in steps if step['status'] != 'optional']
 
@@ -558,6 +634,9 @@ def _build_precheck_payload():
         'total_steps': len(countable_steps),
         'total_school_hours': total_school_hours,
         'average_teacher_hours': average_teacher_hours,
+        'normal_subject_hours': normal_subject_hours,
+        'estimated_min_teachers': estimated_min_teachers,
+        'teacher_capacity_shortage_count': len(capacity_shortages),
     }
 
     return {

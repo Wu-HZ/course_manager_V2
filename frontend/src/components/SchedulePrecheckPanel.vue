@@ -40,6 +40,11 @@
             <div class="metric-value">{{ averageTeacherHoursDisplay }} 节/人</div>
             <div class="metric-tip">按全校总课时 ÷ 教师数估算</div>
           </div>
+          <div class="metric-item compact">
+            <div class="metric-label">建议最少教师数</div>
+            <div class="metric-value">{{ estimatedMinTeachersDisplay }} 人</div>
+            <div class="metric-tip">按普通课程课时 ÷ 单人最多约 27 节估算</div>
+          </div>
         </div>
         <div class="collapsed-summary__footer">
           <div class="footer-summary" :class="{ danger: !precheck.summary.can_run }">
@@ -59,6 +64,11 @@
             <div class="metric-label">人均课时</div>
             <div class="metric-value">{{ averageTeacherHoursDisplay }} 节/人</div>
             <div class="metric-tip">按全校总课时 ÷ 教师数估算</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-label">建议最少教师数</div>
+            <div class="metric-value">{{ estimatedMinTeachersDisplay }} 人</div>
+            <div class="metric-tip">按普通课程课时 ÷ 单人最多约 27 节估算</div>
           </div>
         </div>
 
@@ -191,6 +201,14 @@ const averageTeacherHoursDisplay = computed(() => {
   }
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
 })
+
+const estimatedMinTeachersDisplay = computed(() => {
+  const value = props.precheck?.summary?.estimated_min_teachers
+  if (value == null) {
+    return '--'
+  }
+  return String(value)
+})
 </script>
 
 <style scoped>
@@ -237,7 +255,7 @@ const averageTeacherHoursDisplay = computed(() => {
 
 .collapsed-summary__metrics {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -250,7 +268,7 @@ const averageTeacherHoursDisplay = computed(() => {
 
 .metrics-strip {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 18px;
 }
