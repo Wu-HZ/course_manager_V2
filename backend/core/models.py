@@ -104,7 +104,7 @@ class Subject(ImportKeyModel):
     )
     is_main_subject = models.BooleanField(
         '主课', default=False,
-        help_text='主课(如语文数学英语)，同一教师只能教一门主课'
+        help_text='主课(如语文数学英语)，单个教师可担任的主课门数由排课设置中的"单师最多主课数"控制'
     )
     max_teacher_classes = models.IntegerField(
         '单师最多班数', default=1,
@@ -319,6 +319,10 @@ class SchedulerSettings(models.Model):
     h14_homeroom_main_subject = models.BooleanField(
         '班主任必须担任主课', default=True,
         help_text='开启后，每个班级的班主任必须在本班至少担任一门主课，否则排课失败'
+    )
+    h15_teacher_max_main_subjects = models.IntegerField(
+        '单师最多主课数', default=1,
+        help_text='同一教师最多可担任几门不同的主课科目（默认1）。教同一门主课的多个班级不计入此上限，由课程的"单师最多班数"单独控制'
     )
 
     # 软约束权重

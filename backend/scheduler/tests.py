@@ -142,3 +142,92 @@ class HomeroomMainSubjectAssignmentTests(TestCase):
             engine.class_subject_teacher[(self.klass.id, self.chinese.id)],
             self.homeroom.id,
         )
+
+
+class MainSubjectLimitAssignmentTests(TestCase):
+    """H15: 单师最多主课数，以及主课跨班受 max_teacher_classes 控制的行为。"""
+
+    def setUp(self):
+        self.settings = SchedulerSettings.get_settings()
+        # 唯一候选教师，便于断言分配结果是确定的
+        self.teacher = Teacher.objects.create(name='全能老师')
+
+    def _main_subject(self, name, max_classes=1):
+        return Subject.objects.create(
+            name=name, weekly_hours=1, is_main_subject=True,
+            max_teacher_classes=max_classes,
+        )
+
+    def _qualify(self, *subjects):
+        for subject in subjects:
+            TeacherQualification.objects.create(teacher=self.teacher, subject=subject)
+
+    def _set_limit(self, value):
+        self.settings.h15_teacher_max_main_subjects = value
+        self.settings.save()
+
+    def _assign(self):
+        engine = ScheduleEngine()
+        engine.load_data()
+        ok = engine.auto_assign_teachers()
+        return engine, ok
+
+    def test_limit_one_blocks_second_main_subject(self):
+        chinese = self._main_subject('语文')
+        math = self._main_subject('数学')
+        self._qualify(chinese, math)
+        SchoolClass.objects.create(name='一班', grade=1)  # 无班主任，绕开 H14
+        self._set_limit(1)
+
+        engine, ok = self._assign()
+
+        self.assertFalse(ok)
+        self.assertTrue(any('分配教师' in e for e in engine.errors), engine.errors)
+
+    def test_higher_limit_allows_multiple_main_subjects(self):
+        chinese = self._main_subject('语文')
+        math = self._main_subject('数学')
+        self._qualify(chinese, math)
+        klass = SchoolClass.objects.create(name='一班', grade=1)
+        self._set_limit(2)
+
+        engine, ok = self._assign()
+
+        self.assertTrue(ok, engine.errors)
+        self.assertEqual(
+            engine.class_subject_teacher[(klass.id, chinese.id)], self.teacher.id
+        )
+        self.assertEqual(
+            engine.class_subject_teacher[(klass.id, math.id)], self.teacher.id
+        )
+
+    def test_same_main_subject_across_classes_within_class_limit(self):
+        # 副作用修正：同一门主课可带多个班（受 max_teacher_classes 控制），限额仍为 1
+        chinese = self._main_subject('语文', max_classes=2)
+        self._qualify(chinese)
+        c1 = SchoolClass.objects.create(name='一班', grade=1)
+        c2 = SchoolClass.objects.create(name='二班', grade=1)
+        self._set_limit(1)
+
+        engine, ok = self._assign()
+
+        self.assertTrue(ok, engine.errors)
+        self.assertEqual(
+            engine.class_subject_teacher[(c1.id, chinese.id)], self.teacher.id
+        )
+        self.assertEqual(
+            engine.class_subject_teacher[(c2.id, chinese.id)], self.teacher.id
+        )
+
+    def test_class_limit_caps_same_main_subject(self):
+        # max_teacher_classes=1 时主课老师只能带一个班，第二个班无人可分
+        chinese = self._main_subject('语文', max_classes=1)
+        self._qualify(chinese)
+        SchoolClass.objects.create(name='一班', grade=1)
+        SchoolClass.objects.create(name='二班', grade=1)
+        self._set_limit(1)
+
+        engine, ok = self._assign()
+
+        self.assertFalse(ok)
+        self.assertTrue(any('分配教师' in e for e in engine.errors), engine.errors)

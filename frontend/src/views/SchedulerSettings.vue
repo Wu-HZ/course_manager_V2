@@ -191,6 +191,17 @@ const hardConstraintFields = [
     help: '开启后，每个班级的班主任必须在本班至少担任一门主课，否则排课会失败。',
     note: '系统会优先把主课分配给班主任。若该班主任没有任何主课资质、或主课已被占满，将无法排课。关闭后班主任与普通教师一样参与分配，不再强制担任主课。',
   },
+  {
+    key: 'h15_teacher_max_main_subjects',
+    code: 'H15',
+    label: '单师最多主课数',
+    type: 'number',
+    min: 1,
+    max: 5,
+    unit: '门',
+    help: '同一教师最多可担任几门不同的主课科目（如语文、数学算两门）。',
+    note: '默认 1，即一个教师只能教一门主课。教同一门主课的多个班级不计入此上限，由课程的“单师最多班数”单独控制。',
+  },
 ]
 
 const preferenceRewardFields = [
@@ -328,6 +339,7 @@ const form = ref({
   h9_consecutive_forbidden: '1,2;3,4',
   h11_teacher_class_daily_max: 2,
   h14_homeroom_main_subject: true,
+  h15_teacher_max_main_subjects: 1,
   s1_am_preference_weight: 10,
   s2_consecutive_weight: 5,
   s3_distribution_weight: 2,

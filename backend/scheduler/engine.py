@@ -187,13 +187,15 @@ class ScheduleEngine:
             if subject.is_main_subject:
                 teacher_main_subjects[teacher_id].add(subject_id)
 
-        # 校验手动分配：同一教师不应有两门不同主课
+        # 校验手动分配：同一教师的主课门数不应超过上限
+        max_main_subjects = self.settings.h15_teacher_max_main_subjects
         for teacher_id, main_subs in teacher_main_subjects.items():
-            if len(main_subs) > 1:
+            if len(main_subs) > max_main_subjects:
                 teacher_name = self.teachers[teacher_id].name
                 sub_names = [self.subjects[sid].name for sid in main_subs]
                 self.warnings.append(
-                    f"教师 '{teacher_name}' 手动分配了多门主课: {', '.join(sub_names)}"
+                    f"教师 '{teacher_name}' 手动分配了 {len(main_subs)} 门主课"
+                    f"（上限 {max_main_subjects}）: {', '.join(sub_names)}"
                 )
 
         # === 优先处理班主任的主课分配 ===
@@ -282,8 +284,12 @@ class ScheduleEngine:
                     if new_load > teacher.max_weekly_hours:
                         continue  # 跳过，分配后会超过上限
 
-                # 主课互斥：该教师已有任何主课分配，不再分配主课
-                if subject.is_main_subject and teacher_main_subjects[teacher_id]:
+                # 主课数量限制：教师可担任的不同主课科目数不超过上限
+                # 教同一门主课的不同班级不算新增主课科目，交由 max_teacher_classes 单独限制
+                if (subject.is_main_subject
+                        and subject_id not in teacher_main_subjects[teacher_id]
+                        and len(teacher_main_subjects[teacher_id])
+                        >= self.settings.h15_teacher_max_main_subjects):
                     continue
 
                 # 单科多班限制：检查该教师教这门课的班数是否已达上限
