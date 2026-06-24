@@ -984,6 +984,60 @@ class ScheduleEngine:
         if not has_conflict:
             diagnostics.append("  无明显冲突")
 
+        # 5.55. 按天在岗教师与课位均衡分析
+        # 满载课表下，每天的普通课位必须由当天在岗（未禁排日）的教师填满；
+        # 禁排日集中在某一天会让那天极难排出。
+        diagnostics.append("")
+        diagnostics.append("[按天在岗与课位均衡分析]")
+        num_classes = len(self.classes)
+        combined_per_day = defaultdict(int)
+        for c_day, _c_period in self.combined_slots:
+            combined_per_day[c_day] += 1
+        friday_meeting_day = FRIDAY_CLASS_MEETING[0]
+
+        day_balance = []
+        for day in range(5):
+            periods = PERIODS_PER_DAY.get(day, 0)
+            meeting = 1 if day == friday_meeting_day else 0
+            normal_periods = max(periods - combined_per_day.get(day, 0) - meeting, 0)
+            day_capacity = normal_periods * num_classes  # 全校该天必须填满的普通课位
+
+            on_duty = [tid for tid in self.teachers if self.teacher_day_off.get(tid) != day]
+            off_count = len(self.teachers) - len(on_duty)
+            # 乐观上界：每位在岗教师当天最多上 min(普通课位段数, 周课时上限) 节
+            supply_upper = 0
+            for tid in on_duty:
+                max_h = self.teachers[tid].max_weekly_hours
+                per_day_cap = normal_periods if max_h is None else min(normal_periods, max_h)
+                supply_upper += max(per_day_cap, 0)
+
+            day_balance.append({
+                'day': day, 'capacity': day_capacity,
+                'on_duty': len(on_duty), 'off': off_count, 'supply_upper': supply_upper,
+            })
+
+            line = (
+                f"  - {DAYS[day]}: 课位需求 {day_capacity} 节, 在岗 {len(on_duty)} 人"
+                f"（禁排 {off_count} 人）, 当天最多可供约 {supply_upper} 节"
+            )
+            if day_capacity > 0 and supply_upper < day_capacity:
+                diagnostics.append(f"[错误]{line} <- 在岗教师不足以填满当天课位!")
+            else:
+                diagnostics.append(line)
+
+        # 禁排日分布失衡提示（满载下摊平禁排日通常更易排出）
+        if day_balance and num_classes:
+            max_off = max(b['off'] for b in day_balance)
+            min_off = min(b['off'] for b in day_balance)
+            if max_off - min_off >= 3:
+                busiest = max(day_balance, key=lambda x: (x['off'], x['capacity']))
+                free_days = [DAYS[b['day']] for b in day_balance if b['off'] == min_off]
+                diagnostics.append(
+                    f"[提示] 教师禁排日分布不均：{DAYS[busiest['day']]} 有 {busiest['off']} 人禁排、"
+                    f"课位需求 {busiest['capacity']} 节，是最紧张的一天；而 {'、'.join(free_days)} 仅 {min_off} 人禁排。"
+                    f"满载课表下，把禁排日尽量摊平到每天通常更容易排出。"
+                )
+
         # 5.6. 教师同班单日上限分析 (H11)
         diagnostics.append("")
         diagnostics.append("[教师同班单日上限分析]")

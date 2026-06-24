@@ -4,7 +4,6 @@ from ortools.sat.python import cp_model
 from core.models import (
     SchedulerSettings, SchoolClass, Subject, Teacher, TeacherQualification,
 )
-
 from .constraints import (
     add_consecutive_forbidden_constraint,
     add_teacher_exclusion_constraint,
