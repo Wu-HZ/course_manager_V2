@@ -1,0 +1,19 @@
+"""排课领域层：纯数据结构，不依赖 Django 或 ortools。"""
+from .calendar import Calendar, Slot
+from .entities import (
+    ClassInfo,
+    CourseDemand,
+    ScheduleProblem,
+    SubjectInfo,
+    TeacherInfo,
+)
+
+__all__ = [
+    "Calendar",
+    "Slot",
+    "ClassInfo",
+    "CourseDemand",
+    "ScheduleProblem",
+    "SubjectInfo",
+    "TeacherInfo",
+]
