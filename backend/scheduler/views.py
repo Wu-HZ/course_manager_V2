@@ -17,7 +17,8 @@ from .serializers import (
     ScheduleResultSerializer, ScheduleResultListSerializer,
     ScheduleResultUpdateSerializer, ScheduleEntrySerializer
 )
-from .engine import run_scheduler
+from .engine import run_scheduler  # 旧引擎，保留以便回退
+from .service import run as run_engine_v2  # 新联合 CP-SAT 引擎
 from .time_slots import TOTAL_SLOTS
 
 
@@ -29,42 +30,38 @@ class ScheduleResultPagination(PageNumberPagination):
 
 @api_view(['POST'])
 def run_schedule(request):
-    """触发排课（支持自动重试）"""
-    time_limit = request.data.get('time_limit_seconds', 300)
-    max_attempts = request.data.get('max_attempts', 50)
-    total_timeout = request.data.get('total_timeout_seconds', 600)
+    """触发排课（联合 CP-SAT 引擎，确定性求解）。
 
-    result = run_scheduler(
-        time_limit_seconds=time_limit,
-        max_attempts=max_attempts,
-        total_timeout_seconds=total_timeout
-    )
+    响应契约与旧引擎保持一致，前端零改动。``max_attempts`` /
+    ``total_timeout_seconds`` 是旧引擎的随机重试参数，新引擎确定性求解、不重试，
+    接受但忽略。无解时 ``diagnostics`` 返回求解器证明的最小冲突集（unsat core）。
+    """
+    time_limit = request.data.get('time_limit_seconds', 60)
 
-    retry_stats = result.get('retry_stats', {})
+    out = run_engine_v2(time_limit_seconds=time_limit, save=True)
+    r = out['result']
 
-    if result['success']:
-        serializer = ScheduleResultSerializer(result['result'])
+    if out['ok'] and r is not None and r.status in ('OPTIMAL', 'FEASIBLE') and out['saved']:
+        serializer = ScheduleResultSerializer(out['saved'])
         return Response({
             'success': True,
-            'status': result['status'],
-            'solve_time_ms': result['solve_time_ms'],
-            'auto_assigned_count': result.get('auto_assigned_count', 0),
+            'status': r.status,
+            'solve_time_ms': r.solve_time_ms,
+            'auto_assigned_count': len(out['problem'].demands),
             'result': serializer.data,
-            'retry_stats': retry_stats,
+            'retry_stats': {},
         })
-    else:
-        data = {
-            'success': False,
-            'errors': result['errors'],
-            'diagnostics': result.get('diagnostics', []),
-            'status': result.get('status', 'UNKNOWN'),
-            'solve_time_ms': result.get('solve_time_ms', 0),
-            'auto_assigned_count': result.get('auto_assigned_count', 0),
-            'retry_stats': retry_stats,
-        }
-        if result.get('result'):
-            data['result_id'] = result['result'].id
-        return Response(data, status=status.HTTP_400_BAD_REQUEST)
+
+    data = {
+        'success': False,
+        'errors': out['errors'],
+        'diagnostics': out['conflicts'],
+        'status': r.status if r is not None else 'INFEASIBLE',
+        'solve_time_ms': r.solve_time_ms if r is not None else 0,
+        'auto_assigned_count': 0,
+        'retry_stats': {},
+    }
+    return Response(data, status=status.HTTP_400_BAD_REQUEST)
 
 
 def _preview_names(names, limit=3):
