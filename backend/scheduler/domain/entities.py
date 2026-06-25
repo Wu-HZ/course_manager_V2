@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .calendar import Calendar, Slot
+from .config import SchedulerConfig
 
 
 @dataclass(frozen=True)
@@ -78,7 +79,9 @@ class ScheduleProblem:
     qualified_teachers: dict[int, frozenset[int]]  # subject_id -> {teacher_id}（资质）
     forced_assignments: dict[tuple[int, int], int]  # (class_id, subject_id) -> teacher_id（手动派课）
     locks_by_class: dict[int, frozenset[Slot]]  # class_id -> 该班用户锁定占用片
-    location_capacity: dict[str, int] = field(default_factory=dict)  # 第一步未用
+    config: SchedulerConfig  # H11/H14/H15 参数 + S1-S7 权重
+    location_capacity: dict[str, int] = field(default_factory=dict)  # 场地类型 -> 容量
+    teacher_locked_hours: dict[int, int] = field(default_factory=dict)  # 教师被用户锁定占用的节数
 
     def qual(self, subject_id: int) -> frozenset[int]:
         return self.qualified_teachers.get(subject_id, frozenset())

@@ -25,6 +25,7 @@ from .domain import (
     ClassInfo,
     CourseDemand,
     ScheduleProblem,
+    SchedulerConfig,
     SubjectInfo,
     TeacherInfo,
 )
@@ -130,9 +131,12 @@ def load_problem() -> tuple[ScheduleProblem, list[str]]:
 
     raw_locks: dict[int, set] = defaultdict(set)
     user_lock_counts: dict[tuple[int, int], int] = defaultdict(int)
+    teacher_locked_hours: dict[int, int] = defaultdict(int)
     for lock in ScheduleLock.objects.all():
         raw_locks[lock.school_class_id].add((lock.day, lock.period))
         user_lock_counts[(lock.school_class_id, lock.subject_id)] += 1
+        if lock.teacher_id:
+            teacher_locked_hours[lock.teacher_id] += 1
     locks_by_class = {cid: frozenset(slots) for cid, slots in raw_locks.items()}
 
     location_capacity = {
@@ -164,6 +168,20 @@ def load_problem() -> tuple[ScheduleProblem, list[str]]:
                     missing_qual_reported.add(subject_id)
                     errors.append(f"课程「{s_obj.name}」未配置任何可授课教师（资质为空）。")
 
+    config = SchedulerConfig(
+        h11_teacher_class_daily_max=settings.h11_teacher_class_daily_max,
+        h14_homeroom_main_subject=settings.h14_homeroom_main_subject,
+        h15_teacher_max_main_subjects=settings.h15_teacher_max_main_subjects,
+        s1_am_preference_weight=settings.s1_am_preference_weight,
+        s2_consecutive_weight=settings.s2_consecutive_weight,
+        s3_distribution_weight=settings.s3_distribution_weight,
+        s4_teacher_daily_threshold=settings.s4_teacher_daily_threshold,
+        s4_teacher_daily_weight=settings.s4_teacher_daily_weight,
+        s5_avoid_first_weight=settings.s5_avoid_first_weight,
+        s6_subject_switch_weight=settings.s6_subject_switch_weight,
+        s7_same_class_subject_switch_weight=settings.s7_same_class_subject_switch_weight,
+    )
+
     problem = ScheduleProblem(
         calendar=calendar,
         classes=classes,
@@ -173,6 +191,8 @@ def load_problem() -> tuple[ScheduleProblem, list[str]]:
         qualified_teachers=qualified_teachers,
         forced_assignments=forced,
         locks_by_class=locks_by_class,
+        config=config,
         location_capacity=location_capacity,
+        teacher_locked_hours=dict(teacher_locked_hours),
     )
     return problem, errors

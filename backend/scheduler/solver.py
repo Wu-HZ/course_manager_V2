@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from ortools.sat.python import cp_model
 
 from .domain import ScheduleProblem
-from .model import add_min_hard_constraints, build_variables
+from .model import add_all_hard_constraints, add_objective, build_variables
 
 
 @dataclass(frozen=True)
@@ -27,6 +27,7 @@ class SolveResult:
     lessons: list[ScheduledLesson]
     num_vars: int
     num_constraints: int
+    objective_value: float | None = None
 
 
 _STATUS_NAMES = {
@@ -39,10 +40,11 @@ _STATUS_NAMES = {
 
 
 def build_model(problem: ScheduleProblem):
-    """构造模型与变量，挂上第一步的最小硬约束。"""
+    """构造模型与变量，挂上全部硬约束与软约束目标。"""
     model = cp_model.CpModel()
     variables = build_variables(model, problem)
-    add_min_hard_constraints(model, problem, variables)
+    add_all_hard_constraints(model, problem, variables)
+    add_objective(model, problem, variables)
     return model, variables
 
 
@@ -55,8 +57,10 @@ def solve(problem: ScheduleProblem, time_limit_seconds: int = 60, num_workers: i
     status = solver.Solve(model)
 
     lessons: list[ScheduledLesson] = []
+    objective_value: float | None = None
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         lessons = _extract(problem, variables, solver)
+        objective_value = solver.ObjectiveValue()
 
     proto = model.Proto()
     return SolveResult(
@@ -65,6 +69,7 @@ def solve(problem: ScheduleProblem, time_limit_seconds: int = 60, num_workers: i
         lessons=lessons,
         num_vars=len(proto.variables),
         num_constraints=len(proto.constraints),
+        objective_value=objective_value,
     )
 
 
