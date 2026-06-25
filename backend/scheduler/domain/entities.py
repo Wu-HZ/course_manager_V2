@@ -68,6 +68,21 @@ class CourseDemand:
 
 
 @dataclass(frozen=True)
+class LockedEntry:
+    """预锁定课表条目（班会 / 校本 / 用户锁定），落库时写为 ``is_locked=True``。
+
+    与 :class:`CourseDemand` 不同：这些是**已经定死**了时间片（甚至教师）的课，
+    不进求解，只作为 place 的不可用片，并在落库时原样写回。
+    """
+
+    class_id: int
+    subject_id: int
+    teacher_id: int | None
+    day: int
+    period: int
+
+
+@dataclass(frozen=True)
 class ScheduleProblem:
     """一次排课的完整输入（联合模型的「事实」）。由 repository 装配，model 消费。"""
 
@@ -82,6 +97,7 @@ class ScheduleProblem:
     config: SchedulerConfig  # H11/H14/H15 参数 + S1-S7 权重
     location_capacity: dict[str, int] = field(default_factory=dict)  # 场地类型 -> 容量
     teacher_locked_hours: dict[int, int] = field(default_factory=dict)  # 教师被用户锁定占用的节数
+    locked_entries: tuple["LockedEntry", ...] = ()  # 班会/校本/用户锁定预锁条目（落库用）
 
     def qual(self, subject_id: int) -> frozenset[int]:
         return self.qualified_teachers.get(subject_id, frozenset())

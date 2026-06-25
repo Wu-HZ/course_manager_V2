@@ -24,6 +24,7 @@ from .domain import (
     Calendar,
     ClassInfo,
     CourseDemand,
+    LockedEntry,
     ScheduleProblem,
     SchedulerConfig,
     SubjectInfo,
@@ -87,6 +88,7 @@ def load_problem() -> tuple[ScheduleProblem, list[str]]:
     subjects: dict[int, SubjectInfo] = {}
     subject_objs: dict[int, Subject] = {}
     class_meeting_id: int | None = None
+    combined_subject_id: int | None = None
     for s in Subject.objects.all():
         subject_objs[s.id] = s
         subjects[s.id] = SubjectInfo(
@@ -103,6 +105,8 @@ def load_problem() -> tuple[ScheduleProblem, list[str]]:
         )
         if s.name == settings.class_meeting_name:
             class_meeting_id = s.id
+        if s.is_combined_class:
+            combined_subject_id = s.id
 
     blocked: dict[int, list[tuple[int, str]]] = defaultdict(list)
     for bt in TeacherBlockedTime.objects.all():
@@ -132,11 +136,15 @@ def load_problem() -> tuple[ScheduleProblem, list[str]]:
     raw_locks: dict[int, set] = defaultdict(set)
     user_lock_counts: dict[tuple[int, int], int] = defaultdict(int)
     teacher_locked_hours: dict[int, int] = defaultdict(int)
+    user_lock_records: list[tuple[int, int, int | None, int, int]] = []
     for lock in ScheduleLock.objects.all():
         raw_locks[lock.school_class_id].add((lock.day, lock.period))
         user_lock_counts[(lock.school_class_id, lock.subject_id)] += 1
         if lock.teacher_id:
             teacher_locked_hours[lock.teacher_id] += 1
+        user_lock_records.append(
+            (lock.school_class_id, lock.subject_id, lock.teacher_id, lock.day, lock.period)
+        )
     locks_by_class = {cid: frozenset(slots) for cid, slots in raw_locks.items()}
 
     location_capacity = {
@@ -182,6 +190,26 @@ def load_problem() -> tuple[ScheduleProblem, list[str]]:
         s7_same_class_subject_switch_weight=settings.s7_same_class_subject_switch_weight,
     )
 
+    # 预锁定条目：班会(→班主任)、校本(→无教师)、用户锁定(教师缺省取授课分配)。
+    locked_entries: list[LockedEntry] = []
+    if class_meeting_id is not None and calendar.class_meeting_slot is not None:
+        mday, mperiod = calendar.class_meeting_slot
+        for class_id, c in classes.items():
+            if c.homeroom_teacher_id is not None:
+                locked_entries.append(
+                    LockedEntry(class_id, class_meeting_id, c.homeroom_teacher_id, mday, mperiod)
+                )
+    if combined_subject_id is not None:
+        for class_id in classes:
+            for day, period in sorted(calendar.combined_slots):
+                locked_entries.append(
+                    LockedEntry(class_id, combined_subject_id, None, day, period)
+                )
+    for class_id, subject_id, teacher_id, day, period in user_lock_records:
+        if teacher_id is None:
+            teacher_id = forced.get((class_id, subject_id))
+        locked_entries.append(LockedEntry(class_id, subject_id, teacher_id, day, period))
+
     problem = ScheduleProblem(
         calendar=calendar,
         classes=classes,
@@ -194,5 +222,6 @@ def load_problem() -> tuple[ScheduleProblem, list[str]]:
         config=config,
         location_capacity=location_capacity,
         teacher_locked_hours=dict(teacher_locked_hours),
+        locked_entries=tuple(locked_entries),
     )
     return problem, errors

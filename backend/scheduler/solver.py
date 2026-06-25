@@ -52,7 +52,7 @@ def solve(
     problem: ScheduleProblem,
     time_limit_seconds: int = 60,
     num_workers: int = 8,
-    relative_gap_limit: float = 0.05,
+    relative_gap_limit: float = 0.08,
 ) -> SolveResult:
     model, variables = build_model(problem)
 
@@ -60,9 +60,10 @@ def solve(
     solver.parameters.max_time_in_seconds = time_limit_seconds
     solver.parameters.num_workers = num_workers
     # 达到相对 gap 容限即停。排课只需"足够好"：闭合最后几个百分点的最优性证明
-    # 往往耗掉绝大部分时间却无实际收益（实测 30s → 2s，解质量不变）。time_limit
-    # 仍作硬上限。注意 CP-SAT 的界质量依赖 worker 数：num_workers≥8 才会启用算紧界
-    # 的互补策略，过低（如 4）会导致 gap 收不拢而耗满时限。
+    # 往往耗掉绝大部分时间却无实际收益。gap=0.08 是实测甜点：稳定 1-3s 出 OPTIMAL
+    # 且解质量与 0.05 持平（目标 276-278）；0.05 方差大（5-20s），0.10 又停太早
+    # （质量降到 271）。time_limit 作硬上限。注意界质量依赖 num_workers≥8，过低
+    # （如 4）会导致 gap 收不拢而耗满时限。
     if relative_gap_limit:
         solver.parameters.relative_gap_limit = relative_gap_limit
     status = solver.Solve(model)

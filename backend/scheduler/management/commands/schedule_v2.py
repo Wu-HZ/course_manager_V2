@@ -21,9 +21,10 @@ class Command(BaseCommand):
         parser.add_argument("--time-limit", type=int, default=60, help="求解时限（秒）")
         parser.add_argument("--workers", type=int, default=8, help="求解器线程数")
         parser.add_argument("--show", type=int, default=1, help="打印前 N 个班的课表网格")
+        parser.add_argument("--save", action="store_true", help="把结果落库到 ScheduleResult")
 
     def handle(self, *args, **opts):
-        out = run(opts["time_limit"], opts["workers"])
+        out = run(opts["time_limit"], opts["workers"], save=opts["save"])
         problem = out["problem"]
 
         self.stdout.write(self.style.MIGRATE_HEADING("=== 规模 ==="))
@@ -64,6 +65,12 @@ class Command(BaseCommand):
                 self.stdout.write("  ✗ " + msg)
         else:
             self.stdout.write(self.style.SUCCESS("自检通过：全部硬约束(H1–H15/带班数/预占片)满足。"))
+
+        if out.get("saved"):
+            sr = out["saved"]
+            self.stdout.write(self.style.SUCCESS(
+                f"已落库：ScheduleResult #{sr.id} · 条目 {sr.entries.count()} 条（预锁定 + 求解）"
+            ))
 
         self._print_grids(problem, r.lessons, opts["show"])
 

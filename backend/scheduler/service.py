@@ -9,7 +9,12 @@ from .repository import load_problem
 from .solver import SolveResult, solve
 
 
-def run(time_limit_seconds: int = 60, num_workers: int = 8) -> dict:
+def run(
+    time_limit_seconds: int = 60,
+    num_workers: int = 8,
+    save: bool = False,
+    result_name: str = "",
+) -> dict:
     """跑完整联合模型。
 
     返回 dict：
@@ -21,7 +26,7 @@ def run(time_limit_seconds: int = 60, num_workers: int = 8) -> dict:
     """
     problem, errors = load_problem()
     if errors:
-        return {"ok": False, "errors": errors, "problem": problem, "result": None, "conflicts": []}
+        return {"ok": False, "errors": errors, "problem": problem, "result": None, "conflicts": [], "saved": None}
 
     result: SolveResult = solve(
         problem, time_limit_seconds=time_limit_seconds, num_workers=num_workers
@@ -35,4 +40,17 @@ def run(time_limit_seconds: int = 60, num_workers: int = 8) -> dict:
             problem, time_limit_seconds=min(time_limit_seconds, 30), num_workers=num_workers
         )
 
-    return {"ok": True, "errors": [], "problem": problem, "result": result, "conflicts": conflicts}
+    saved = None
+    if save and result.status in ("OPTIMAL", "FEASIBLE"):
+        from .persistence import persist
+
+        saved = persist(problem, result, name=result_name)
+
+    return {
+        "ok": True,
+        "errors": [],
+        "problem": problem,
+        "result": result,
+        "conflicts": conflicts,
+        "saved": saved,
+    }

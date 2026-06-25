@@ -4,6 +4,7 @@ from .config import SchedulerConfig
 from .entities import (
     ClassInfo,
     CourseDemand,
+    LockedEntry,
     ScheduleProblem,
     SubjectInfo,
     TeacherInfo,
@@ -15,6 +16,7 @@ __all__ = [
     "SchedulerConfig",
     "ClassInfo",
     "CourseDemand",
+    "LockedEntry",
     "ScheduleProblem",
     "SubjectInfo",
     "TeacherInfo",
