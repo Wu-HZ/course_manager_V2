@@ -36,7 +36,9 @@ def run_schedule(request):
     ``total_timeout_seconds`` 是旧引擎的随机重试参数，新引擎确定性求解、不重试，
     接受但忽略。无解时 ``diagnostics`` 返回求解器证明的最小冲突集（unsat core）。
     """
-    time_limit = request.data.get('time_limit_seconds', 60)
+    # 新引擎有解时秒级返回；time_limit 主要是"无解时放弃并转诊断"的阈值，
+    # cap 到 90s，避免前端旧默认(300)在无解数据上干等 5 分钟。
+    time_limit = min(int(request.data.get('time_limit_seconds', 60) or 60), 90)
 
     out = run_engine_v2(time_limit_seconds=time_limit, save=True)
     r = out['result']

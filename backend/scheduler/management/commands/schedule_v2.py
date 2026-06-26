@@ -51,9 +51,9 @@ class Command(BaseCommand):
         if r.status not in ("OPTIMAL", "FEASIBLE"):
             self.stdout.write(self.style.WARNING("无可行解 / 未知。"))
             if out["conflicts"]:
-                self.stdout.write(self.style.ERROR("最小冲突集（放松其一即可能有解）："))
+                self.stdout.write(self.style.ERROR("诊断："))
                 for msg in out["conflicts"]:
-                    self.stdout.write("  ✗ " + msg)
+                    self.stdout.write("  " + msg)
             else:
                 self.stdout.write("（未能定位到可放松的约束，可能是结构性时间冲突或超时。）")
             return
@@ -207,24 +207,33 @@ class Command(BaseCommand):
     def _print_grids(self, problem, lessons, n: int) -> None:
         if n <= 0:
             return
-        by_class: dict = defaultdict(dict)
-        for L in lessons:
-            by_class[L.class_id][(L.day, L.period)] = L
-
         cal = problem.calendar
+        by_class: dict = defaultdict(dict)
+        # 预锁定(班会/校本/用户锁定)用 [] 标记——这些时段并非空闲。
+        for le in problem.locked_entries:
+            sname = problem.subjects[le.subject_id].name
+            tname = problem.teachers[le.teacher_id].name if le.teacher_id is not None else "—"
+            by_class[le.class_id][(le.day, le.period)] = f"[{sname}/{tname}]"
+        # 求解出的普通课
+        for L in lessons:
+            sname = problem.subjects[L.subject_id].name
+            tname = problem.teachers[L.teacher_id].name if L.teacher_id is not None else "?"
+            by_class[L.class_id][(L.day, L.period)] = f"{sname}/{tname}"
+
         max_period = max(problem.calendar.periods_per_day)
         for shown, (cid, cinfo) in enumerate(problem.classes.items()):
             if shown >= n:
                 break
-            self.stdout.write(self.style.MIGRATE_HEADING(f"=== 课表：{cinfo.name} ==="))
+            self.stdout.write(
+                self.style.MIGRATE_HEADING(
+                    f"=== 课表：{cinfo.name}（[]=班会/校本预锁定，·=真空位，✕=该天无此节） ==="
+                )
+            )
             for p in range(max_period):
                 cells = []
                 for d in cal.days:
-                    L = by_class[cid].get((d, p))
-                    if L:
-                        s = problem.subjects[L.subject_id].name
-                        t = problem.teachers[L.teacher_id].name if L.teacher_id else "?"
-                        cells.append(f"{s}/{t}")
+                    if p >= cal.periods_per_day[d]:
+                        cells.append("✕")
                     else:
-                        cells.append("·")
-                self.stdout.write(f"  P{p + 1}: " + " | ".join(f"{c:<12}" for c in cells))
+                        cells.append(by_class[cid].get((d, p), "·"))
+                self.stdout.write(f"  P{p + 1}: " + " | ".join(f"{c:<14}" for c in cells))
