@@ -12,6 +12,7 @@ from .solver import SolveResult, solve
 def run(
     time_limit_seconds: int = 60,
     num_workers: int = 8,
+    relative_gap_limit: float = 0.08,
     save: bool = False,
     result_name: str = "",
 ) -> dict:
@@ -29,7 +30,10 @@ def run(
         return {"ok": False, "errors": errors, "problem": problem, "result": None, "conflicts": [], "saved": None}
 
     result: SolveResult = solve(
-        problem, time_limit_seconds=time_limit_seconds, num_workers=num_workers
+        problem,
+        time_limit_seconds=time_limit_seconds,
+        num_workers=num_workers,
+        relative_gap_limit=relative_gap_limit,
     )
 
     conflicts: list[str] = []

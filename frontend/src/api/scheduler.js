@@ -2,12 +2,12 @@ import api from './index'
 
 export const runSchedule = (params = {}) => {
   const data = {
-    time_limit_seconds: params.timeLimit || 300,
-    max_attempts: params.maxAttempts || 50,
-    total_timeout_seconds: params.totalTimeout || 600,
+    time_limit_seconds: params.timeLimit || 60,
+    num_workers: params.numWorkers || 8,
+    relative_gap: params.gap ?? 8,
   }
   return api.post('/scheduler/run/', data, {
-    // 排课可能持续很久，这里交给后端 total_timeout_seconds 控制结束时机。
+    // 排课可能持续很久，这里交给后端 time_limit_seconds 控制结束时机。
     timeout: 0,
   })
 }

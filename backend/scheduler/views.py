@@ -36,11 +36,19 @@ def run_schedule(request):
     ``total_timeout_seconds`` 是旧引擎的随机重试参数，新引擎确定性求解、不重试，
     接受但忽略。无解时 ``diagnostics`` 返回求解器证明的最小冲突集（unsat core）。
     """
-    # 新引擎有解时秒级返回；time_limit 主要是"无解时放弃并转诊断"的阈值，
-    # cap 到 90s，避免前端旧默认(300)在无解数据上干等 5 分钟。
-    time_limit = min(int(request.data.get('time_limit_seconds', 60) or 60), 90)
+    # 新引擎有解时秒级返回；time_limit 是"无解时放弃求解、转为诊断"的上限。
+    time_limit = int(request.data.get('time_limit_seconds', 60) or 60)
+    num_workers = int(request.data.get('num_workers', 8) or 8)
+    # gap=0 合法(求精确最优)，不能用 `or` 兜底，否则 0 会被错当成未传。
+    gap_raw = request.data.get('relative_gap')
+    gap_percent = float(gap_raw) if gap_raw is not None else 8.0
 
-    out = run_engine_v2(time_limit_seconds=time_limit, save=True)
+    out = run_engine_v2(
+        time_limit_seconds=time_limit,
+        num_workers=num_workers,
+        relative_gap_limit=gap_percent / 100.0,
+        save=True,
+    )
     r = out['result']
 
     if out['ok'] and r is not None and r.status in ('OPTIMAL', 'FEASIBLE') and out['saved']:

@@ -84,18 +84,18 @@
           <div class="advanced-grid">
             <div class="advanced-field">
               <div class="advanced-field__label">单次求解时限</div>
-              <div class="advanced-field__hint">每次求解尝试最多可使用的时间。</div>
-              <el-input-number v-model="timeLimit" :min="10" :max="1500" />
+              <div class="advanced-field__hint">有解通常数秒返回；此值为放弃求解、转为无解诊断的上限（秒）。</div>
+              <el-input-number v-model="timeLimit" :min="10" :max="600" />
             </div>
             <div class="advanced-field">
-              <div class="advanced-field__label">最大尝试次数</div>
-              <div class="advanced-field__hint">未得到结果时，系统最多自动重试的次数。</div>
-              <el-input-number v-model="maxAttempts" :min="1" :max="250" />
+              <div class="advanced-field__label">求解器线程数</div>
+              <div class="advanced-field__hint">并行求解线程，建议 ≥8，过低会明显变慢。</div>
+              <el-input-number v-model="numWorkers" :min="1" :max="32" />
             </div>
             <div class="advanced-field">
-              <div class="advanced-field__label">总超时时间</div>
-              <div class="advanced-field__hint">所有尝试累计允许使用的总时间。</div>
-              <el-input-number v-model="totalTimeout" :min="30" :max="3000" />
+              <div class="advanced-field__label">求解质量容限</div>
+              <div class="advanced-field__hint">允许与最优的差距（%），越小越接近最优但越慢，8 通常足够。</div>
+              <el-input-number v-model="gapPercent" :min="0" :max="50" />
             </div>
           </div>
         </div>
@@ -236,9 +236,9 @@ import {
 } from '../utils/scheduleResults'
 import ScheduleResultPicker from '../components/ScheduleResultPicker.vue'
 
-const timeLimit = ref(300)
-const maxAttempts = ref(50)
-const totalTimeout = ref(600)
+const timeLimit = ref(60)
+const numWorkers = ref(8)
+const gapPercent = ref(8)
 const advancedExpanded = ref(false)
 const running = ref(false)
 const result = ref(null)
@@ -301,9 +301,9 @@ const notificationTagText = computed(() => {
   return '未开启'
 })
 const advancedSummaryItems = computed(() => ([
-  `单次 ${timeLimit.value} 秒`,
-  `最多 ${maxAttempts.value} 次`,
-  `总计 ${totalTimeout.value} 秒`,
+  `时限 ${timeLimit.value} 秒`,
+  `${numWorkers.value} 线程`,
+  `容限 ${gapPercent.value}%`,
 ]))
 const completionDialogTitle = computed(() => (
   completionDialogMode.value === 'success' ? '排课完成' : '排课已结束'
@@ -496,8 +496,8 @@ const runSchedule = async () => {
   try {
     const res = await runScheduleApi({
       timeLimit: timeLimit.value,
-      maxAttempts: maxAttempts.value,
-      totalTimeout: totalTimeout.value,
+      numWorkers: numWorkers.value,
+      gap: gapPercent.value,
     })
     result.value = res.result
     autoAssignedCount.value = res.auto_assigned_count || 0
