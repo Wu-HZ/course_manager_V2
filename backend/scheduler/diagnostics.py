@@ -254,5 +254,8 @@ def diagnose_shortfall(problem: ScheduleProblem, time_limit_seconds: int = 40, n
         val = solver.Value(short)
         if val > 0:
             msgs.append(f"  · {problem.classes[c].name} / {problem.subjects[sid].name} 少排 {val} 节")
-    msgs.append("建议：为相关课程增加合格教师，或放宽教师课时上限 / 单师带班数 / 禁排日等限制。")
+    msgs.append("可从三方面解决（针对上述课程）：")
+    msgs.append("  ① 加资源：增加这些课的合格教师，或给现有空闲教师补上该课资质；")
+    msgs.append("  ② 松约束：调高单师带班数 / 教师周课时上限，或减少教师禁排日、放宽班主任主课(H14)、单师主课数(H15)等；")
+    msgs.append("  ③ 降需求：减少这些课的周课时，或缩减校本/班会占用的时段。")
     return msgs

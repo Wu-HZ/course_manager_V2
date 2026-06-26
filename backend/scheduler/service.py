@@ -37,8 +37,10 @@ def run(
         from .diagnostics import diagnose, diagnose_shortfall
 
         # 短缺诊断对 UNKNOWN(满载难证的无解)也有效，优先用它告诉用户"哪几节排不下"。
+        # 短缺诊断须跑到最优才能报准"最少缺几节"，给独立的充足时限(不跟随主求解的
+        # time_limit，否则 time_limit 小时会得到次优解、高估短缺节数)。
         conflicts = diagnose_shortfall(
-            problem, time_limit_seconds=min(time_limit_seconds, 40), num_workers=num_workers
+            problem, time_limit_seconds=40, num_workers=num_workers
         )
         # INFEASIBLE 且短缺诊断没给出内容时，回退到 unsat core(指出冲突的规则)。
         if not conflicts and result.status == "INFEASIBLE":
