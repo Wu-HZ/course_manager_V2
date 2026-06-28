@@ -11,7 +11,6 @@ from .models import (
 class TravelGroupAdmin(admin.ModelAdmin):
     list_display = ('name', 'day_off')
     list_filter = ('day_off',)
-    ordering = ('day_off',)
 
 
 @admin.register(Subject)
