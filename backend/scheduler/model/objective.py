@@ -28,11 +28,8 @@ def add_objective(model, problem: "ScheduleProblem", variables: "Variables") -> 
     )
     penalties += _s5_avoid_first(problem, variables, cfg.s5_avoid_first_weight)
 
-    # S6/S7 共享 busy 索引与 teach 辅助变量
-    busy_idx = _index_busy(variables)
-    teach = _build_teach(model, busy_idx)
-    penalties += _s6_class_switch(model, problem, teach, cfg.s6_subject_switch_weight)
-    penalties += _s7_subject_switch(model, problem, busy_idx, cfg.s7_same_class_subject_switch_weight)
+    penalties += _s6_class_switch(model, problem, variables, cfg.s6_subject_switch_weight)
+    penalties += _s7_subject_switch(model, problem, variables, cfg.s7_same_class_subject_switch_weight)
 
     if rewards or penalties:
         model.Maximize(sum(rewards) - sum(penalties))
@@ -110,28 +107,6 @@ def _s5_avoid_first(problem, variables, w: int) -> list:
 
 # ---- 基于 busy 的软约束 ----
 
-def _index_busy(variables) -> dict:
-    """busy 按 (t, c, d, p) -> {subject_id: var} 索引，供 S6/S7 复用。"""
-    idx: dict[tuple[int, int, int, int], dict] = defaultdict(dict)
-    for (c, s, t, d, p), b in variables.busy.items():
-        idx[(t, c, d, p)][s] = b
-    return idx
-
-
-def _build_teach(model, busy_idx) -> dict:
-    """teach[(t,c,d,p)] = 教师 t 在班 c 的该片是否有课 = OR_s busy。"""
-    teach: dict[tuple[int, int, int, int], object] = {}
-    for key, s_map in busy_idx.items():
-        vars_ = list(s_map.values())
-        if len(vars_) == 1:
-            teach[key] = vars_[0]  # 单科时 busy 本身即布尔
-        else:
-            tv = model.NewBoolVar(f"occ_t{key[0]}_c{key[1]}_d{key[2]}_p{key[3]}")
-            model.AddMaxEquality(tv, vars_)
-            teach[key] = tv
-    return teach
-
-
 def _s4_teacher_daily(model, problem, variables, threshold: int, w: int) -> list:
     """S4：教师单日课时超过阈值，惩罚超出部分。"""
     if not w:
@@ -149,45 +124,82 @@ def _s4_teacher_daily(model, problem, variables, threshold: int, w: int) -> list
     return terms
 
 
-def _s6_class_switch(model, problem, teach, w: int) -> list:
-    """S6：教师连续两节在不同班级，惩罚（同班连续不罚）。"""
+def _s6_class_switch(model, problem, variables, w: int) -> list:
+    """S6：教师连续两节在不同班级则惩罚（同班连续不罚）。
+
+    紧凑建模——利用 H3（教师每节至多 1 班）：换班 = consec（连续两节都有课）
+    − stay（同班连续）。只用线性数量的辅助变量，避免枚举班级两两组合（原 O(班²)）。
+    """
     if not w:
         return []
-    by_tdp: dict[tuple[int, int, int], list] = defaultdict(list)
-    for (t, c, d, p), v in teach.items():
-        by_tdp[(t, d, p)].append((c, v))
+    occ_by_tdp: dict[tuple[int, int, int], list] = defaultdict(list)      # (t,d,p)->[busy]（教师该节所有课）
+    teach_by_tcdp: dict[tuple[int, int, int, int], list] = defaultdict(list)  # (t,c,d,p)->[busy]（在该班该节）
+    for (c, s, t, d, p), b in variables.busy.items():
+        occ_by_tdp[(t, d, p)].append(b)
+        teach_by_tcdp[(t, c, d, p)].append(b)
+    classes_at: dict[tuple[int, int, int], set] = defaultdict(set)
+    for (t, c, d, p) in teach_by_tcdp:
+        classes_at[(t, d, p)].add(c)
 
     terms = []
-    for (t, d, p), at_p in by_tdp.items():
-        at_p1 = by_tdp.get((t, d, p + 1))
-        if not at_p1:
+    for (t, d, p), occ_p in occ_by_tdp.items():
+        occ_p1 = occ_by_tdp.get((t, d, p + 1))
+        if not occ_p1:
             continue
-        for c1, v1 in at_p:
-            for c2, v2 in at_p1:
-                if c1 == c2:
-                    continue
-                both = model.NewBoolVar(f"s6_t{t}_d{d}_p{p}_c{c1}_c{c2}")
-                model.AddBoolAnd([v1, v2]).OnlyEnforceIf(both)
-                model.AddBoolOr([v1.Not(), v2.Not()]).OnlyEnforceIf(both.Not())
-                terms.append(both * w)
+        # consec = (教师 p 有课) AND (教师 p+1 有课)；occ 是 sum，∈{0,1}（H3）
+        consec = model.NewBoolVar(f"s6consec_t{t}_d{d}_p{p}")
+        model.Add(consec <= sum(occ_p))
+        model.Add(consec <= sum(occ_p1))
+        model.Add(consec >= sum(occ_p) + sum(occ_p1) - 1)
+        # stay = 连续两节在同一个班（共同候选班逐个 AND）
+        stay = []
+        for c in classes_at[(t, d, p)] & classes_at[(t, d, p + 1)]:
+            sc = model.NewBoolVar(f"s6stay_t{t}_c{c}_d{d}_p{p}")
+            tp = teach_by_tcdp[(t, c, d, p)]
+            tp1 = teach_by_tcdp[(t, c, d, p + 1)]
+            model.Add(sc <= sum(tp))
+            model.Add(sc <= sum(tp1))
+            model.Add(sc >= sum(tp) + sum(tp1) - 1)
+            stay.append(sc)
+        # 换班 = consec − stay ∈ {0,1}
+        terms.append((consec - sum(stay)) * w)
     return terms
 
 
-def _s7_subject_switch(model, problem, busy_idx, w: int) -> list:
-    """S7：教师连续两节在同一班级但上不同科目，惩罚（同科连堂不罚）。"""
+def _s7_subject_switch(model, problem, variables, w: int) -> list:
+    """S7：教师连续两节在同一班级但上不同科目则惩罚（同科连堂不罚）。
+
+    紧凑建模——利用 H2（每班每节至多 1 课）：换科 = consec_c（在该班连续两节都有课）
+    − same（同科连续）。线性数量辅助变量，避免枚举科目两两组合（原 O(科²)）。
+    """
     if not w:
         return []
+    teach_by_tcdp: dict[tuple[int, int, int, int], list] = defaultdict(list)  # (t,c,d,p)->[busy]
+    subj_busy: dict[tuple[int, int, int, int], dict] = defaultdict(dict)       # (t,c,d,p)->{s: busy}
+    for (c, s, t, d, p), b in variables.busy.items():
+        teach_by_tcdp[(t, c, d, p)].append(b)
+        subj_busy[(t, c, d, p)][s] = b
+
     terms = []
-    for (t, c, d, p), s_map in busy_idx.items():
-        s_map_next = busy_idx.get((t, c, d, p + 1))
-        if not s_map_next:
+    for (t, c, d, p), tp in teach_by_tcdp.items():
+        tp1 = teach_by_tcdp.get((t, c, d, p + 1))
+        if not tp1:
             continue
-        for s1, v1 in s_map.items():
-            for s2, v2 in s_map_next.items():
-                if s1 == s2:
-                    continue
-                both = model.NewBoolVar(f"s7_t{t}_c{c}_d{d}_p{p}_s{s1}_s{s2}")
-                model.AddBoolAnd([v1, v2]).OnlyEnforceIf(both)
-                model.AddBoolOr([v1.Not(), v2.Not()]).OnlyEnforceIf(both.Not())
-                terms.append(both * w)
+        # consec_c = 教师在该班连续两节都有课
+        consec_c = model.NewBoolVar(f"s7consec_t{t}_c{c}_d{d}_p{p}")
+        model.Add(consec_c <= sum(tp))
+        model.Add(consec_c <= sum(tp1))
+        model.Add(consec_c >= sum(tp) + sum(tp1) - 1)
+        # same = 连续两节是同一门课（共同科目逐个 AND）
+        same = []
+        smap = subj_busy[(t, c, d, p)]
+        smap1 = subj_busy[(t, c, d, p + 1)]
+        for s in smap.keys() & smap1.keys():
+            ss = model.NewBoolVar(f"s7same_t{t}_c{c}_d{d}_p{p}_s{s}")
+            model.Add(ss <= smap[s])
+            model.Add(ss <= smap1[s])
+            model.Add(ss >= smap[s] + smap1[s] - 1)
+            same.append(ss)
+        # 换科 = consec_c − same ∈ {0,1}
+        terms.append((consec_c - sum(same)) * w)
     return terms
