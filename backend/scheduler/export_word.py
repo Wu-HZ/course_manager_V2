@@ -548,6 +548,14 @@ def _make_para(text, *, bold=False, size_pt=14, alignment='left',
     """创建一个带样式的 w:p 元素。"""
     p = etree.Element(qn('w:p'))
     pPr = etree.SubElement(p, qn('w:pPr'))
+    # 紧凑行距，防止内容溢出到下一页
+    spacing = etree.SubElement(pPr, qn('w:spacing'))
+    spacing.set(qn('w:before'), '0')
+    spacing.set(qn('w:after'), '0')
+    spacing.set(qn('w:line'), '240')
+    spacing.set(qn('w:lineRule'), 'auto')
+    snap = etree.SubElement(pPr, qn('w:snapToGrid'))
+    snap.set(qn('w:val'), '0')
     jc = etree.SubElement(pPr, qn('w:jc'))
     jc.set(qn('w:val'), alignment)
     if left_indent or right_indent:
@@ -686,7 +694,7 @@ def _build_groups_page_elements(combined_data, travel_data, school_name, semeste
                                left_indent=indent))
     if travel_data:
         for tg in travel_data:
-            label = f"{tg['name']}（{tg['day_off']}）" if tg['day_off'] else tg['name']
+            label = tg['name']
             t_str = '、'.join(tg['teachers']) if tg['teachers'] else '（无）'
             elements.append(_make_para(f'{label}：{t_str}',
                                        size_pt=14, alignment='left',
@@ -712,6 +720,13 @@ def _generate_groups_docx_bytes(result_id, school_name, semester,
 
     doc = Document(str(TEMPLATE_PATH))
     body = doc.element.body
+
+    # 压小下边距，防止落款/时间溢出
+    sect_pr = body.find(qn('w:sectPr'))
+    if sect_pr is not None:
+        pg_mar = sect_pr.find(qn('w:pgMar'))
+        if pg_mar is not None:
+            pg_mar.set(qn('w:bottom'), '450')
 
     # 清空模板内容，只保留 sectPr（页面设置）
     children = list(body)
