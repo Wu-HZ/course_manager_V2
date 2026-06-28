@@ -163,6 +163,17 @@
       class="responsive-dialog"
     >
       <el-form :label-position="isMobile ? 'top' : 'right'" label-width="80px">
+        <el-form-item label="导出类型">
+          <el-checkbox-group v-model="exportTypes">
+            <el-checkbox value="class">班级课表</el-checkbox>
+            <el-checkbox value="teacher">教师课表</el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
+        <el-form-item label="合并文件">
+          <el-tooltip content="勾选后将所有类型的课表合并到同一个 docx 文件中" placement="top">
+            <el-checkbox v-model="exportMerge">合并为一个文件</el-checkbox>
+          </el-tooltip>
+        </el-form-item>
         <el-form-item label="学校名称">
           <el-input v-model="wordSettings.school_name" placeholder="如：某某某学校" />
         </el-form-item>
@@ -179,7 +190,7 @@
       <template #footer>
         <div class="dialog-footer">
           <el-button @click="wordDialogVisible = false">取消</el-button>
-          <el-button type="primary" :loading="wordExporting" @click="exportToWord">
+          <el-button type="primary" :loading="wordExporting" :disabled="!exportTypes.length" @click="exportToWord">
             导出
           </el-button>
         </div>
@@ -232,6 +243,8 @@ const timetableRefs = {}
 const WORD_SETTINGS_KEY = 'word_export_settings'
 const wordDialogVisible = ref(false)
 const wordExporting = ref(false)
+const exportTypes = ref(['class'])
+const exportMerge = ref(false)
 const wordSettings = ref(loadWordSettings())
 
 function loadWordSettings() {
@@ -254,12 +267,18 @@ function showWordDialog() {
 }
 
 async function exportToWord() {
+  if (!exportTypes.value.length) {
+    ElMessage.warning('请至少选择一种导出类型')
+    return
+  }
   saveWordSettings()
   wordExporting.value = true
   try {
+    const merge = exportMerge.value || exportTypes.value.length === 1
     const response = await exportWord({
       result_id: selectedResult.value,
-      view_type: viewType.value,
+      view_types: exportTypes.value,
+      merge,
       ...wordSettings.value
     })
     const url = URL.createObjectURL(response.data)
@@ -269,7 +288,13 @@ async function exportToWord() {
       currentResult.value,
       `课表_${selectedResult.value}`
     )
-    link.download = `${fileLabel}_${viewType.value === 'class' ? '按班级' : '按教师'}.docx`
+    if (!merge) {
+      // 多种类型不合并 → 后端返回 zip
+      link.download = `${fileLabel}.zip`
+    } else {
+      const typeLabel = exportTypes.value.map(t => t === 'class' ? '按班级' : '按教师').join('_')
+      link.download = `${fileLabel}_${typeLabel}.docx`
+    }
     link.click()
     URL.revokeObjectURL(url)
     ElMessage.success('导出成功')

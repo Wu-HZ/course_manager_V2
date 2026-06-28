@@ -4,6 +4,7 @@
 """
 
 import io
+import zipfile
 from collections import defaultdict
 from copy import deepcopy
 from pathlib import Path
@@ -465,51 +466,23 @@ def _build_template_element_list(body):
 
 # ── main endpoint ──────────────────────────────────────────────
 
-@api_view(['POST'])
-def export_word(request):
-    """导出课表为 Word (.docx)
+def _build_single_docx_bytes(result_id, view_type, targets, school_name, semester,
+                             footer_text, date_text):
+    """为一种导出类型生成一个 docx 文件（多页），返回 bytes。"""
 
-    请求体::
-
-        {
-            "result_id": 1,
-            "view_type": "class",       // "class" | "teacher"
-            "school_name": "某某某学校",
-            "semester": "2025年下学期",
-            "footer": "教导处",
-            "date": "2025年8月"
-        }
-    """
-    result_id = request.data.get('result_id')
-    view_type = request.data.get('view_type', 'class')
-    school_name = request.data.get('school_name', '').strip()
-    semester = request.data.get('semester', '').strip()
-    footer_text = request.data.get('footer', '').strip()
-    date_text = request.data.get('date', '').strip()
-
-    if not result_id:
-        return Response({'error': '缺少 result_id'}, status=status.HTTP_400_BAD_REQUEST)
-    if view_type not in ('class', 'teacher'):
-        return Response({'error': 'view_type 必须为 class 或 teacher'},
-                        status=status.HTTP_400_BAD_REQUEST)
-
-    try:
-        ScheduleResult.objects.get(pk=result_id)
-    except ScheduleResult.DoesNotExist:
-        return Response({'error': '排课结果不存在'}, status=status.HTTP_404_NOT_FOUND)
-
-    if view_type == 'class':
-        targets = list(SchoolClass.objects.all().order_by('grade', 'name'))
-    else:
-        targets = list(Teacher.objects.all().order_by('id'))
-
-    if not targets:
-        return Response({'error': '没有可导出的对象'}, status=status.HTTP_400_BAD_REQUEST)
-
-    # 构建排课数据（已算好显示文本）
     cell_data_maps = _build_entry_maps(result_id, view_type, targets)
 
-    # ── 打开模板，定位页面元素 ──
+    # 组装 (target, cell_data) 列表
+    page_items = [(t, cell_data_maps.get(t.id, [])) for t in targets]
+
+    return _generate_docx_from_pages(page_items, school_name, semester,
+                                     footer_text, date_text)
+
+
+def _generate_docx_from_pages(page_items, school_name, semester,
+                              footer_text, date_text):
+    """用模板生成一份多页 docx，每页一个 target 的课表。返回 bytes。"""
+
     doc = Document(str(TEMPLATE_PATH))
     body = doc.element.body
 
@@ -521,34 +494,31 @@ def export_word(request):
             pg_mar.set(qn('w:bottom'), '450')
     all_children = list(body)
 
-    # 模板章节：标题、副标题、表格、空段落、落款、日期、sectPr
+    # 模板章节
     title_el = all_children[IDX_TITLE]
     subtitle_el = all_children[IDX_SUBTITLE]
     table_el = all_children[IDX_TABLE]
     spacer_els = []
     for i in range(IDX_SPACER_START, IDX_SPACER_END + 1):
-        if i < len(all_children) - 1:  # 确保不拿 sectPr
+        if i < len(all_children) - 1:
             spacer_els.append(all_children[i])
     footer_el = all_children[IDX_FOOTER]
     date_el = all_children[IDX_DATE]
 
-    # sectPr 固定在文档末尾
-    sect_pr = all_children[-1]
+    sect_pr = list(body)[-1]
 
-    # 制作模板元素集（用于后续页面克隆）
     page_template = [title_el, subtitle_el, table_el] + spacer_els + [footer_el, date_el]
 
-    # ── 填充第一页（直接修改模板原元素）─
-    first = targets[0]
-    first_data = cell_data_maps.get(first.id, [])
-    _set_subtitle_text(subtitle_el, f'{school_name}  {semester}', first.name)
+    # 填充第一页
+    first_target, first_data = page_items[0]
+    _set_subtitle_text(subtitle_el, f'{school_name}  {semester}', first_target.name)
     _fill_table(table_el, first_data)
     _set_footer_center(footer_el, footer_text)
     _set_footer_center(date_el, date_text)
 
-    # ── 后续页面：克隆整页结构 ──
+    # 后续页面：克隆整页结构
     last_page_end = date_el
-    for target in targets[1:]:
+    for target, data in page_items[1:]:
         pb = _make_page_break()
         last_page_end.addnext(pb)
         cloned = _clone_page_elements(body, page_template)
@@ -556,7 +526,7 @@ def export_word(request):
         cl_footer, cl_date = cloned[-2], cloned[-1]
 
         _set_subtitle_text(cl_subtitle, f'{school_name}  {semester}', target.name)
-        _fill_table(cl_table, cell_data_maps.get(target.id, []))
+        _fill_table(cl_table, data)
         _set_footer_center(cl_footer, footer_text)
         _set_footer_center(cl_date, date_text)
 
@@ -567,16 +537,122 @@ def export_word(request):
         body.remove(sect_pr)
         body.append(sect_pr)
 
-    # ── 输出 ──
     buf = io.BytesIO()
     doc.save(buf)
     buf.seek(0)
+    return buf.getvalue()
 
-    file_label = f'课表_{view_type}_{result_id}'
-    disposition = f'attachment; filename="{file_label}.docx"'
 
-    return HttpResponse(
-        buf.getvalue(),
-        content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        headers={'Content-Disposition': disposition},
-    )
+TYPE_LABELS = {'class': '按班级', 'teacher': '按教师'}
+
+
+@api_view(['POST'])
+def export_word(request):
+    """导出课表为 Word (.docx) 或 ZIP
+
+    请求体::
+
+        {
+            "result_id": 1,
+            "view_types": ["class", "teacher"],   // 多选
+            "merge": true,                        // 是否合并到一个文件
+            "school_name": "某某某学校",
+            "semester": "2025年下学期",
+            "footer": "教导处",
+            "date": "2025年8月"
+        }
+
+    也兼容旧单值字段 ``view_type``（不带 ``merge`` 时行为不变）。
+    """
+    result_id = request.data.get('result_id')
+    school_name = request.data.get('school_name', '').strip()
+    semester = request.data.get('semester', '').strip()
+    footer_text = request.data.get('footer', '').strip()
+    date_text = request.data.get('date', '').strip()
+
+    if not result_id:
+        return Response({'error': '缺少 result_id'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # 支持多选 view_types，也兼容旧单值 view_type
+    view_types = request.data.get('view_types')
+    if not view_types:
+        view_type = request.data.get('view_type', 'class')
+        if view_type not in ('class', 'teacher'):
+            return Response({'error': 'view_type 必须为 class 或 teacher'},
+                            status=status.HTTP_400_BAD_REQUEST)
+        view_types = [view_type]
+
+    for vt in view_types:
+        if vt not in ('class', 'teacher'):
+            return Response({'error': f'无效的 view_type: {vt}'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        ScheduleResult.objects.get(pk=result_id)
+    except ScheduleResult.DoesNotExist:
+        return Response({'error': '排课结果不存在'}, status=status.HTTP_404_NOT_FOUND)
+
+    merge = request.data.get('merge', False)
+
+    if merge or len(view_types) == 1:
+        # ── 合并为单个 docx ──
+        page_items = []
+        for vt in view_types:
+            if vt == 'class':
+                targets = list(SchoolClass.objects.all().order_by('grade', 'name'))
+            else:
+                targets = list(Teacher.objects.all().order_by('id'))
+            if targets:
+                cell_data_maps = _build_entry_maps(result_id, vt, targets)
+                for t in targets:
+                    page_items.append((t, cell_data_maps.get(t.id, [])))
+
+        if not page_items:
+            return Response({'error': '没有可导出的对象'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        docx_bytes = _generate_docx_from_pages(
+            page_items, school_name, semester, footer_text, date_text
+        )
+
+        type_label = '_'.join(view_types)
+        file_label = f'课表_{type_label}_{result_id}'
+        disposition = f'attachment; filename="{file_label}.docx"'
+
+        return HttpResponse(
+            docx_bytes,
+            content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            headers={'Content-Disposition': disposition},
+        )
+
+    else:
+        # ── 分开导出，打包为 zip ──
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for vt in view_types:
+                if vt == 'class':
+                    targets = list(SchoolClass.objects.all().order_by('grade', 'name'))
+                else:
+                    targets = list(Teacher.objects.all().order_by('id'))
+
+                if not targets:
+                    continue
+
+                docx_bytes = _build_single_docx_bytes(
+                    result_id, vt, targets,
+                    school_name, semester, footer_text, date_text
+                )
+
+                filename = f'课表_{TYPE_LABELS.get(vt, vt)}_{result_id}.docx'
+                zf.writestr(filename, docx_bytes)
+
+        zip_buf.seek(0)
+
+        file_label = f'课表_{result_id}'
+        disposition = f'attachment; filename="{file_label}.zip"'
+
+        return HttpResponse(
+            zip_buf.getvalue(),
+            content_type='application/zip',
+            headers={'Content-Disposition': disposition},
+        )
