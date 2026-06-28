@@ -677,16 +677,13 @@ def _build_groups_page_elements(combined_data, travel_data, school_name, semeste
         elements.append(_make_para('（无）', size_pt=14, alignment='left',
                                    left_indent=indent + 400))
 
-    # 两组之间的间距
-    elements.append(_make_para('', size_pt=12))
-
     # ── 送教分组 ──
     elements.append(_make_para('送教分组',
                                bold=True, size_pt=14, alignment='left',
                                left_indent=indent))
     if travel_data:
         for tg in travel_data:
-            label = f"{tg['name']}（{tg['day_off']}）" if tg['day_off'] else tg['name']
+            label = tg['name']
             t_str = '、'.join(tg['teachers']) if tg['teachers'] else '（无）'
             elements.append(_make_para(f'{label}：{t_str}',
                                        size_pt=14, alignment='left',
