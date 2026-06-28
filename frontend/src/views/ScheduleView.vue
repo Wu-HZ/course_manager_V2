@@ -43,6 +43,9 @@
             <el-button type="primary" :disabled="!allTimetables.length" @click="exportToJSON">
               导出数据 (JSON)
             </el-button>
+            <el-button type="warning" :disabled="!allTimetables.length" @click="showWordDialog">
+              导出 Word
+            </el-button>
           </div>
         </el-form-item>
       </el-form>
@@ -151,11 +154,43 @@
         </el-table>
       </div>
     </el-card>
+
+    <el-dialog
+      v-model="wordDialogVisible"
+      title="导出课表 Word"
+      :fullscreen="isMobile"
+      :width="isMobile ? undefined : '480px'"
+      class="responsive-dialog"
+    >
+      <el-form :label-position="isMobile ? 'top' : 'right'" label-width="80px">
+        <el-form-item label="学校名称">
+          <el-input v-model="wordSettings.school_name" placeholder="如：某某某学校" />
+        </el-form-item>
+        <el-form-item label="学期">
+          <el-input v-model="wordSettings.semester" placeholder="如：2025年下学期" />
+        </el-form-item>
+        <el-form-item label="落款">
+          <el-input v-model="wordSettings.footer" placeholder="如：教导处" />
+        </el-form-item>
+        <el-form-item label="日期">
+          <el-input v-model="wordSettings.date" placeholder="如：2025年8月" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="wordDialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="wordExporting" @click="exportToWord">
+            导出
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import * as XLSX from 'xlsx'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -169,7 +204,8 @@ import {
   getClassTimetable,
   getTeacherTimetable,
   getActiveSchedule,
-  getScheduleResult
+  getScheduleResult,
+  exportWord
 } from '../api/scheduler'
 import { getClasses } from '../api/classes'
 import { getTeachers } from '../api/teachers'
@@ -189,6 +225,59 @@ const travelGroups = ref([])
 const selectedTargetId = ref(null)
 const chartExpanded = ref(false)
 const timetableRefs = {}
+
+// Word 导出相关
+const WORD_SETTINGS_KEY = 'word_export_settings'
+const wordDialogVisible = ref(false)
+const wordExporting = ref(false)
+const wordSettings = ref(loadWordSettings())
+
+function loadWordSettings() {
+  try {
+    const raw = localStorage.getItem(WORD_SETTINGS_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch { /* ignore */ }
+  return { school_name: '', semester: '', footer: '教导处', date: '' }
+}
+
+function saveWordSettings() {
+  try {
+    localStorage.setItem(WORD_SETTINGS_KEY, JSON.stringify(wordSettings.value))
+  } catch { /* ignore */ }
+}
+
+function showWordDialog() {
+  wordSettings.value = loadWordSettings()
+  wordDialogVisible.value = true
+}
+
+async function exportToWord() {
+  saveWordSettings()
+  wordExporting.value = true
+  try {
+    const response = await exportWord({
+      result_id: selectedResult.value,
+      view_type: viewType.value,
+      ...wordSettings.value
+    })
+    const url = URL.createObjectURL(response.data)
+    const link = document.createElement('a')
+    link.href = url
+    const fileLabel = buildScheduleResultFileLabel(
+      currentResult.value,
+      `课表_${selectedResult.value}`
+    )
+    link.download = `${fileLabel}_${viewType.value === 'class' ? '按班级' : '按教师'}.docx`
+    link.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success('导出成功')
+    wordDialogVisible.value = false
+  } catch {
+    ElMessage.error('导出失败')
+  } finally {
+    wordExporting.value = false
+  }
+}
 
 const { isMobile } = useResponsive()
 

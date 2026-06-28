@@ -31,3 +31,7 @@ export const getClassTimetable = (resultId, classId) =>
 
 export const getTeacherTimetable = (resultId, teacherId) =>
   api.get(`/scheduler/results/${resultId}/teacher/${teacherId}/`)
+
+import axios from 'axios'
+export const exportWord = (data) =>
+  axios.post('/api/scheduler/export-word/', data, { responseType: 'blob' })
