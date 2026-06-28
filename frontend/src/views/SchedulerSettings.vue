@@ -194,82 +194,79 @@ const hardConstraintFields = [
   },
 ]
 
-const preferenceRewardFields = [
+const softConstraintFields = [
   {
     key: 's1_am_preference_weight',
     code: 'S1',
-    label: '上午优先权重',
+    label: '上午优先',
     type: 'number',
-    min: 0,
+    min: -100,
     max: 100,
-    help: '对标记为“上午优先”的课程，每排到上午 1 节就增加一份奖励分。',
+    help: '标记了「上午优先」的课排在上午时加分（正数）；设为负数则反而不希望排在上午。',
   },
   {
     key: 's2_consecutive_weight',
     code: 'S2',
-    label: '连堂偏好权重',
+    label: '连堂偏好',
     type: 'number',
-    min: 0,
+    min: -100,
     max: 100,
-    help: '对“允许连堂”的课程，每形成一组允许的相邻连排，就增加一份奖励分。',
+    help: '允许连堂的课形成相邻排列时加分（正数）；设为负数则避免连堂。',
   },
-]
-
-const preferencePenaltyFields = [
   {
     key: 's3_distribution_weight',
     code: 'S3',
-    label: '分布均匀权重',
+    label: '分布均匀',
     type: 'number',
-    min: 0,
+    min: -100,
     max: 100,
-    help: '同一班级的同一门课在同一天超过 1 节时，对超出的节数累计惩罚。',
+    help: '同班同课同一天超过 1 节时对超出部分扣分。正数=希望分散到每天；负值=允许集中。',
   },
   {
     key: 's4_teacher_daily_threshold',
     code: 'S4-A',
     label: '教师日负载阈值',
     type: 'number',
-    min: 1,
-    max: 6,
+    min: 0,
+    max: 8,
     unit: '节',
-    help: '教师某天总排课节数超过该值后，才开始计算日负载惩罚。',
+    help: '教师某天总排课超过该值才开始计分。设为 0 表示总期望不超过 0 节。',
   },
   {
     key: 's4_teacher_daily_weight',
     code: 'S4-B',
-    label: '教师日负载权重',
+    label: '教师日负载程度',
     type: 'number',
-    min: 0,
+    min: -100,
     max: 100,
-    help: '教师某天总排课每超出阈值 1 节，就增加一份惩罚分。',
+    help: '每超出阈值 1 节的偏好程度。正数=避免超负荷；负数=接受甚至鼓励集中。',
   },
   {
     key: 's5_avoid_first_weight',
     code: 'S5',
-    label: '避免第一节权重',
+    label: '避免第一节',
     type: 'number',
-    min: 0,
+    min: -100,
     max: 100,
-    help: '对标记为“避免第一节”的课程，每排在当天第 1 节 1 次，就增加一份惩罚分。',
+    help: '标记了「避免第一节」的课排在第 1 节时的偏好。正数=避免第一节；负数=反而希望排在第一节。',
   },
   {
     key: 's6_subject_switch_weight',
     code: 'S6',
-    label: '换班惩罚权重',
+    label: '教师换班',
     type: 'number',
-    min: 0,
+    min: -100,
     max: 100,
-    help: '同一教师若上一节在 A 班、下一节在 B 班，就记一次惩罚分。',
+    help: '教师相邻两节在不同班级时的偏好。正数=希望少换班；负数=接受或鼓励换班。',
   },
   {
     key: 's7_same_class_subject_switch_weight',
     code: 'S7',
-    label: '同班换科惩罚权重',
+    label: '同班换科',
     type: 'number',
-    min: 0,
+    min: -100,
     max: 100,
-    help: '同一教师若连续两节在同一班级但教授不同科目，就记一次惩罚分；同科连堂不罚。',
+    help: '教师相邻两节在同一班级但换科目的偏好。正数=希望少换科；负数=不介意换科。',
   },
 ]
 
@@ -293,31 +290,17 @@ const sections = [
   {
     key: 'preferences',
     title: '软约束权重',
-    subtitle: '只在多个方案都可行时参与评分，区分奖励分与惩罚分后会更容易调整取舍方向。',
-    count: preferenceRewardFields.length + preferencePenaltyFields.length,
-    groups: [
-      {
-        key: 'reward',
-        title: '奖励分',
-        subtitle: '数值越大，系统越倾向于主动争取这类安排。',
-        gridClass: 'field-grid--reward',
-        fields: preferenceRewardFields,
-      },
-      {
-        key: 'penalty',
-        title: '惩罚分',
-        subtitle: '数值越大，系统越会回避这类安排；阈值项用于决定惩罚何时开始生效。',
-        gridClass: 'field-grid--penalty',
-        fields: preferencePenaltyFields,
-      },
-    ],
+    subtitle: '每项可设正数（偏好）、负数（避免）或 0（关闭），共同构成求解器优化的目标函数。',
+    count: softConstraintFields.length,
+    gridClass: 'field-grid--soft',
+    fields: softConstraintFields,
   },
 ]
 
 const overviewStats = [
   { label: '基础配置', value: basicFields.length },
   { label: '硬约束', value: hardConstraintFields.length },
-  { label: '软约束', value: preferenceRewardFields.length + preferencePenaltyFields.length },
+  { label: '软约束', value: softConstraintFields.length },
 ]
 
 const loading = ref(false)
@@ -535,11 +518,7 @@ onMounted(loadSettings)
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.field-grid--reward {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.field-grid--penalty {
+.field-grid--soft {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
@@ -618,7 +597,7 @@ onMounted(loadSettings)
 }
 
 @media (max-width: 1280px) {
-  .field-grid--penalty {
+  .field-grid--soft {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
@@ -626,8 +605,7 @@ onMounted(loadSettings)
 @media (max-width: 900px) {
   .field-grid--basic,
   .field-grid--constraints,
-  .field-grid--reward,
-  .field-grid--penalty {
+  .field-grid--soft {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -646,8 +624,7 @@ onMounted(loadSettings)
 
   .field-grid--basic,
   .field-grid--constraints,
-  .field-grid--reward,
-  .field-grid--penalty {
+  .field-grid--soft {
     grid-template-columns: 1fr;
   }
 
