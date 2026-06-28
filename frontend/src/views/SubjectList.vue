@@ -172,10 +172,12 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import MobileEntityList from '../components/MobileEntityList.vue'
 import { useResponsive } from '../composables/useResponsive'
 import { getSubjects, createSubject, updateSubject, deleteSubject } from '../api/subjects'
+import api from '../api'
 
 const subjects = ref([])
 const dialogVisible = ref(false)
 const editingId = ref(null)
+const classMeetingName = ref('班会')
 const form = ref({
   name: '',
   weekly_hours: 1,
@@ -192,14 +194,49 @@ const form = ref({
 
 const { isMobile } = useResponsive()
 
+/** 班会或校本课程：系统通过名称匹配/合班课标志来预锁定，不应随意修改或删除 */
+const isSpecialSubject = (row) => {
+  if (!row) return false
+  return row.is_combined_class || row.name === classMeetingName.value
+}
+
+const getSpecialTypeLabel = (row) => {
+  if (!row) return ''
+  if (row.is_combined_class) return '校本课程（合班课）'
+  if (row.name === classMeetingName.value) return '班会课'
+  return ''
+}
+
+const confirmSpecialAction = async (action, row) => {
+  const typeLabel = getSpecialTypeLabel(row)
+  const message = `「${row.name}」是${typeLabel}，属于系统预锁定的固定课程。
+
+⚠️ ${action === 'edit' ? '修改其字段（名称除外）对排课行为没有实际影响；若修改名称，则需同步更新「排课设置」中的对应设置项。' : '删除后将导致排课结果中所有该课程的条目被级联删除，课表中将不再出现该课程。'}
+
+确定要继续${action === 'edit' ? '修改' : '删除'}吗？`
+  await ElMessageBox.confirm(message, `确认${action === 'edit' ? '修改' : '删除'}特殊课程`, {
+    confirmButtonText: `确认${action === 'edit' ? '修改' : '删除'}`,
+    cancelButtonText: '取消',
+    type: 'warning',
+    dangerouslyUseHTMLString: false
+  })
+}
+
 const loadData = async () => {
   subjects.value = await getSubjects()
 }
 
-const showDialog = (row = null) => {
+const showDialog = async (row = null) => {
   if (row) {
     editingId.value = row.id
     form.value = { ...row }
+    if (isSpecialSubject(row)) {
+      try {
+        await confirmSpecialAction('edit', row)
+      } catch {
+        return
+      }
+    }
   } else {
     editingId.value = null
     form.value = {
@@ -236,7 +273,15 @@ const handleSave = async () => {
 }
 
 const handleDelete = async (row) => {
-  await ElMessageBox.confirm('确定删除该课程?', '提示', { type: 'warning' })
+  try {
+    if (isSpecialSubject(row)) {
+      await confirmSpecialAction('delete', row)
+    } else {
+      await ElMessageBox.confirm('确定删除该课程?', '提示', { type: 'warning' })
+    }
+  } catch {
+    return
+  }
   try {
     await deleteSubject(row.id)
     ElMessage.success('删除成功')
@@ -246,7 +291,19 @@ const handleDelete = async (row) => {
   }
 }
 
-onMounted(loadData)
+const loadSettings = async () => {
+  try {
+    const settings = await api.get('/scheduler-settings/')
+    classMeetingName.value = settings.class_meeting_name || '班会'
+  } catch {
+    // 设置加载失败则使用默认值
+  }
+}
+
+onMounted(async () => {
+  await loadSettings()
+  loadData()
+})
 </script>
 
 <style scoped>
