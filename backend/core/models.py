@@ -53,7 +53,6 @@ class TravelGroup(ImportKeyModel):
     class Meta:
         verbose_name = '送教分组'
         verbose_name_plural = verbose_name
-        ordering = ['day_off']
 
     def __str__(self):
         return f"{self.name} (禁排: {self.get_day_off_display()})"
