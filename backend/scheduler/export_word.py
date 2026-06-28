@@ -641,7 +641,7 @@ def _get_groups_data(result_id):
     for tg in travel_groups:
         travel_data.append({
             'name': tg.name,
-            'day_off': tg.day_off_display or '',
+            'day_off': tg.get_day_off_display() or '',
             'teachers': teachers_by_group.get(tg.id, []),
         })
 
