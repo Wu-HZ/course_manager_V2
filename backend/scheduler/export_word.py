@@ -630,7 +630,7 @@ def _get_groups_data(result_id):
         combined_data[group_name] = teachers
 
     # 送教分组
-    travel_groups = list(TravelGroup.objects.all().order_by('name'))
+    travel_groups = list(TravelGroup.objects.all().order_by('day_off'))
     teachers = list(Teacher.objects.all())
     teachers_by_group = {}
     for t in teachers:

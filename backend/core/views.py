@@ -19,7 +19,7 @@ from .serializers import (
 
 
 class TravelGroupViewSet(viewsets.ModelViewSet):
-    queryset = TravelGroup.objects.all()
+    queryset = TravelGroup.objects.all().order_by('day_off')
     serializer_class = TravelGroupSerializer
 
 
