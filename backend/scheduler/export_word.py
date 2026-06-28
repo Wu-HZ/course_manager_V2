@@ -501,7 +501,7 @@ def export_word(request):
     if view_type == 'class':
         targets = list(SchoolClass.objects.all().order_by('grade', 'name'))
     else:
-        targets = list(Teacher.objects.all().order_by('name'))
+        targets = list(Teacher.objects.all().order_by('id'))
 
     if not targets:
         return Response({'error': '没有可导出的对象'}, status=status.HTTP_400_BAD_REQUEST)
