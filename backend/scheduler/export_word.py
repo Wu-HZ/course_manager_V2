@@ -17,7 +17,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from core.models import SchoolClass, Subject, Teacher, SchedulerSettings
+from core.models import SchoolClass, Subject, Teacher, TravelGroup, SchedulerSettings
 from .models import ScheduleEntry, ScheduleResult
 from .time_slots import DAYS
 
@@ -543,7 +543,212 @@ def _generate_docx_from_pages(page_items, school_name, semester,
     return buf.getvalue()
 
 
-TYPE_LABELS = {'class': '按班级', 'teacher': '按教师'}
+def _make_para(text, *, bold=False, size_pt=14, alignment='left',
+               left_indent=0, right_indent=0):
+    """创建一个带样式的 w:p 元素。"""
+    p = etree.Element(qn('w:p'))
+    pPr = etree.SubElement(p, qn('w:pPr'))
+    jc = etree.SubElement(pPr, qn('w:jc'))
+    jc.set(qn('w:val'), alignment)
+    if left_indent or right_indent:
+        ind = etree.SubElement(pPr, qn('w:ind'))
+        if left_indent:
+            ind.set(qn('w:left'), str(left_indent))
+        if right_indent:
+            ind.set(qn('w:right'), str(right_indent))
+    if text:
+        r = etree.SubElement(p, qn('w:r'))
+        rPr = etree.SubElement(r, qn('w:rPr'))
+        if bold:
+            etree.SubElement(rPr, qn('w:b'))
+            etree.SubElement(rPr, qn('w:bCs'))
+        if size_pt:
+            sz_val = str(size_pt * 2)
+            sz = etree.SubElement(rPr, qn('w:sz'))
+            sz.set(qn('w:val'), sz_val)
+            szCs = etree.SubElement(rPr, qn('w:szCs'))
+            szCs.set(qn('w:val'), sz_val)
+        t = etree.SubElement(r, qn('w:t'))
+        t.text = text
+        t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
+    return p
+
+
+def _make_footer_para(text):
+    """落款/日期段落：在行右侧区域居中对齐，与课表页面的落款风格一致。"""
+    p = etree.Element(qn('w:p'))
+    pPr = etree.SubElement(p, qn('w:pPr'))
+    ind = etree.SubElement(pPr, qn('w:ind'))
+    ind.set(qn('w:left'), str(TABLE_LEFT_INDENT + TABLE_WIDTH * 3 // 4))
+    ind.set(qn('w:right'), str(TABLE_RIGHT_INDENT + INNER_INDENT))
+    jc = etree.SubElement(pPr, qn('w:jc'))
+    jc.set(qn('w:val'), 'center')
+    spacing = etree.SubElement(pPr, qn('w:spacing'))
+    spacing.set(qn('w:before'), '0')
+    spacing.set(qn('w:after'), '0')
+    spacing.set(qn('w:line'), '240')
+    spacing.set(qn('w:lineRule'), 'auto')
+    snap = etree.SubElement(pPr, qn('w:snapToGrid'))
+    snap.set(qn('w:val'), '0')
+    if text:
+        r = etree.SubElement(p, qn('w:r'))
+        rPr = etree.SubElement(r, qn('w:rPr'))
+        etree.SubElement(rPr, qn('w:b'))
+        etree.SubElement(rPr, qn('w:bCs'))
+        sz = etree.SubElement(rPr, qn('w:sz'))
+        sz.set(qn('w:val'), '28')
+        szCs = etree.SubElement(rPr, qn('w:szCs'))
+        szCs.set(qn('w:val'), '28')
+        t = etree.SubElement(r, qn('w:t'))
+        t.text = text
+        t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
+    return p
+
+
+def _get_groups_data(result_id):
+    """获取分组信息数据。返回 (combined_data, travel_data)。
+
+    combined_data: {分组名: [教师名, ...]}
+    travel_data:   [{'name': 分组名, 'day_off': 禁排日, 'teachers': [教师名, ...]}, ...]
+    """
+    try:
+        result = ScheduleResult.objects.get(pk=result_id)
+    except ScheduleResult.DoesNotExist:
+        result = None
+
+    combined_assignments = result.combined_class_assignments if result else {}
+
+    # 合并周二/周四教师列表，不区分日期
+    combined_data = {}
+    for group_name, day_data in combined_assignments.items():
+        teachers = []
+        if isinstance(day_data, dict):
+            for names in day_data.values():
+                teachers.extend(names)
+        elif isinstance(day_data, list):
+            teachers = day_data
+        combined_data[group_name] = teachers
+
+    # 送教分组
+    travel_groups = list(TravelGroup.objects.all().order_by('name'))
+    teachers = list(Teacher.objects.all())
+    teachers_by_group = {}
+    for t in teachers:
+        if t.travel_group_id:
+            teachers_by_group.setdefault(t.travel_group_id, []).append(t.name)
+
+    travel_data = []
+    for tg in travel_groups:
+        travel_data.append({
+            'name': tg.name,
+            'day_off': tg.day_off_display or '',
+            'teachers': teachers_by_group.get(tg.id, []),
+        })
+
+    return combined_data, travel_data
+
+
+def _build_groups_page_elements(combined_data, travel_data, school_name, semester,
+                                 footer_text, date_text):
+    """构建分组信息页面的所有 w:p 元素。"""
+    indent = TABLE_LEFT_INDENT + INNER_INDENT  # 与表格左边缘对齐，略向右微调
+
+    elements = []
+    # 标题
+    elements.append(_make_para('课  程  表', bold=True, size_pt=22, alignment='center'))
+    # 副标题
+    elements.append(_make_para(f'{school_name}  {semester}  分组信息',
+                               bold=True, size_pt=16, alignment='center'))
+    # 标题与正文间距
+    elements.append(_make_para('', size_pt=10))
+
+    # ── 校本课程教师分组 ──
+    elements.append(_make_para('校本课程教师分组',
+                               bold=True, size_pt=14, alignment='left',
+                               left_indent=indent))
+    if combined_data:
+        for group_name in sorted(combined_data.keys()):
+            teacher_names = combined_data[group_name]
+            t_str = '、'.join(teacher_names) if teacher_names else '（无）'
+            elements.append(_make_para(f'{group_name}：{t_str}',
+                                       size_pt=14, alignment='left',
+                                       left_indent=indent + 400))
+    else:
+        elements.append(_make_para('（无）', size_pt=14, alignment='left',
+                                   left_indent=indent + 400))
+
+    # 两组之间的间距
+    elements.append(_make_para('', size_pt=12))
+
+    # ── 送教分组 ──
+    elements.append(_make_para('送教分组',
+                               bold=True, size_pt=14, alignment='left',
+                               left_indent=indent))
+    if travel_data:
+        for tg in travel_data:
+            label = f"{tg['name']}（{tg['day_off']}）" if tg['day_off'] else tg['name']
+            t_str = '、'.join(tg['teachers']) if tg['teachers'] else '（无）'
+            elements.append(_make_para(f'{label}：{t_str}',
+                                       size_pt=14, alignment='left',
+                                       left_indent=indent + 400))
+    else:
+        elements.append(_make_para('（无）', size_pt=14, alignment='left',
+                                   left_indent=indent + 400))
+
+    # 落款和日期（与课表页面同款样式）
+    elements.append(_make_footer_para(footer_text))
+    elements.append(_make_footer_para(date_text))
+
+    return elements
+
+
+def _generate_groups_docx_bytes(result_id, school_name, semester,
+                                 footer_text, date_text):
+    """生成仅包含分组信息的 docx 文件，返回 bytes。"""
+    combined_data, travel_data = _get_groups_data(result_id)
+    elements = _build_groups_page_elements(combined_data, travel_data,
+                                           school_name, semester,
+                                           footer_text, date_text)
+
+    doc = Document(str(TEMPLATE_PATH))
+    body = doc.element.body
+
+    # 清空模板内容，只保留 sectPr（页面设置）
+    children = list(body)
+    sect_pr = children[-1]
+    for child in children:
+        body.remove(child)
+
+    for el in elements:
+        body.append(el)
+    body.append(sect_pr)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+
+def _append_groups_to_body(body, combined_data, travel_data, school_name, semester,
+                            footer_text, date_text, after_element):
+    """在 after_element 之后追加分页符 + 分组信息页面元素。返回最后插入的元素。"""
+    pb = _make_page_break()
+    after_element.addnext(pb)
+
+    elements = _build_groups_page_elements(combined_data, travel_data,
+                                           school_name, semester,
+                                           footer_text, date_text)
+    cur = pb
+    for el in elements:
+        cur.addnext(el)
+        cur = el
+    return cur
+
+
+TYPE_LABELS = {'class': '按班级', 'teacher': '按教师', 'groups': '分组信息'}
+
+
+VALID_VIEW_TYPES = {'class', 'teacher', 'groups'}
 
 
 @api_view(['POST'])
@@ -554,15 +759,13 @@ def export_word(request):
 
         {
             "result_id": 1,
-            "view_types": ["class", "teacher"],   // 多选
-            "merge": true,                        // 是否合并到一个文件
+            "view_types": ["class", "teacher", "groups"],  // 多选
+            "merge": true,                                 // 是否合并到一个文件
             "school_name": "某某某学校",
             "semester": "2025年下学期",
             "footer": "教导处",
             "date": "2025年8月"
         }
-
-    也兼容旧单值字段 ``view_type``（不带 ``merge`` 时行为不变）。
     """
     result_id = request.data.get('result_id')
     school_name = request.data.get('school_name', '').strip()
@@ -577,13 +780,13 @@ def export_word(request):
     view_types = request.data.get('view_types')
     if not view_types:
         view_type = request.data.get('view_type', 'class')
-        if view_type not in ('class', 'teacher'):
-            return Response({'error': 'view_type 必须为 class 或 teacher'},
+        if view_type not in VALID_VIEW_TYPES:
+            return Response({'error': f'无效的 view_type: {view_type}'},
                             status=status.HTTP_400_BAD_REQUEST)
         view_types = [view_type]
 
     for vt in view_types:
-        if vt not in ('class', 'teacher'):
+        if vt not in VALID_VIEW_TYPES:
             return Response({'error': f'无效的 view_type: {vt}'},
                             status=status.HTTP_400_BAD_REQUEST)
 
@@ -593,11 +796,13 @@ def export_word(request):
         return Response({'error': '排课结果不存在'}, status=status.HTTP_404_NOT_FOUND)
 
     merge = request.data.get('merge', False)
+    timetable_types = [vt for vt in view_types if vt in ('class', 'teacher')]
+    has_groups = 'groups' in view_types
 
     if merge or len(view_types) == 1:
         # ── 合并为单个 docx ──
         page_items = []
-        for vt in view_types:
+        for vt in timetable_types:
             if vt == 'class':
                 targets = list(SchoolClass.objects.all().order_by('grade', 'name'))
             else:
@@ -607,16 +812,86 @@ def export_word(request):
                 for t in targets:
                     page_items.append((t, cell_data_maps.get(t.id, [])))
 
-        if not page_items:
+        if not page_items and not has_groups:
             return Response({'error': '没有可导出的对象'},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        docx_bytes = _generate_docx_from_pages(
-            page_items, school_name, semester, footer_text, date_text
-        )
+        if not page_items and has_groups:
+            # 仅导出分组信息
+            docx_bytes = _generate_groups_docx_bytes(
+                result_id, school_name, semester, footer_text, date_text
+            )
+            file_label = f'分组信息_{result_id}'
+        else:
+            # 先生成课表页
+            doc = Document(str(TEMPLATE_PATH))
+            body = doc.element.body
 
-        type_label = '_'.join(view_types)
-        file_label = f'课表_{type_label}_{result_id}'
+            sect_pr = body.find(qn('w:sectPr'))
+            if sect_pr is not None:
+                pg_mar = sect_pr.find(qn('w:pgMar'))
+                if pg_mar is not None:
+                    pg_mar.set(qn('w:bottom'), '450')
+            all_children = list(body)
+
+            title_el = all_children[IDX_TITLE]
+            subtitle_el = all_children[IDX_SUBTITLE]
+            table_el = all_children[IDX_TABLE]
+            spacer_els = []
+            for i in range(IDX_SPACER_START, IDX_SPACER_END + 1):
+                if i < len(all_children) - 1:
+                    spacer_els.append(all_children[i])
+            footer_el_xml = all_children[IDX_FOOTER]
+            date_el_xml = all_children[IDX_DATE]
+
+            sect_pr = list(body)[-1]
+
+            page_template = [title_el, subtitle_el, table_el] + spacer_els + [footer_el_xml, date_el_xml]
+
+            # 填充第一页
+            first_target, first_data = page_items[0]
+            _set_subtitle_text(subtitle_el, f'{school_name}  {semester}', first_target.name)
+            _fill_table(table_el, first_data)
+            _set_footer_center(footer_el_xml, footer_text)
+            _set_footer_center(date_el_xml, date_text)
+
+            # 后续课表页
+            last_page_end = date_el_xml
+            for target, data in page_items[1:]:
+                pb = _make_page_break()
+                last_page_end.addnext(pb)
+                cloned = _clone_page_elements(body, page_template)
+                cl_title, cl_subtitle, cl_table = cloned[0], cloned[1], cloned[2]
+                cl_footer, cl_date = cloned[-2], cloned[-1]
+
+                _set_subtitle_text(cl_subtitle, f'{school_name}  {semester}', target.name)
+                _fill_table(cl_table, data)
+                _set_footer_center(cl_footer, footer_text)
+                _set_footer_center(cl_date, date_text)
+
+                last_page_end = _insert_sequence_after(pb, cloned)
+
+            # 如果需要合并分组信息，追加到课表之后
+            if has_groups:
+                combined_data, travel_data = _get_groups_data(result_id)
+                last_page_end = _append_groups_to_body(
+                    body, combined_data, travel_data,
+                    school_name, semester, footer_text, date_text,
+                    last_page_end
+                )
+
+            # 确保 sectPr 在最后
+            if list(body)[-1] is not sect_pr:
+                body.remove(sect_pr)
+                body.append(sect_pr)
+
+            buf = io.BytesIO()
+            doc.save(buf)
+            buf.seek(0)
+            docx_bytes = buf.getvalue()
+
+            file_label = f'课表_{"_".join(view_types)}_{result_id}'
+
         disposition = f'attachment; filename="{file_label}.docx"'
 
         return HttpResponse(
@@ -629,7 +904,7 @@ def export_word(request):
         # ── 分开导出，打包为 zip ──
         zip_buf = io.BytesIO()
         with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for vt in view_types:
+            for vt in timetable_types:
                 if vt == 'class':
                     targets = list(SchoolClass.objects.all().order_by('grade', 'name'))
                 else:
@@ -644,6 +919,13 @@ def export_word(request):
                 )
 
                 filename = f'课表_{TYPE_LABELS.get(vt, vt)}_{result_id}.docx'
+                zf.writestr(filename, docx_bytes)
+
+            if has_groups:
+                docx_bytes = _generate_groups_docx_bytes(
+                    result_id, school_name, semester, footer_text, date_text
+                )
+                filename = f'分组信息_{result_id}.docx'
                 zf.writestr(filename, docx_bytes)
 
         zip_buf.seek(0)

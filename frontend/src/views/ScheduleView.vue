@@ -167,6 +167,7 @@
           <el-checkbox-group v-model="exportTypes">
             <el-checkbox value="class">班级课表</el-checkbox>
             <el-checkbox value="teacher">教师课表</el-checkbox>
+            <el-checkbox value="groups">分组信息</el-checkbox>
           </el-checkbox-group>
         </el-form-item>
         <el-form-item label="合并文件">
@@ -288,11 +289,11 @@ async function exportToWord() {
       currentResult.value,
       `课表_${selectedResult.value}`
     )
+    const typeLabelMap = { class: '按班级', teacher: '按教师', groups: '分组信息' }
+    const typeLabel = exportTypes.value.map(t => typeLabelMap[t] || t).join('_')
     if (!merge) {
-      // 多种类型不合并 → 后端返回 zip
       link.download = `${fileLabel}.zip`
     } else {
-      const typeLabel = exportTypes.value.map(t => t === 'class' ? '按班级' : '按教师').join('_')
       link.download = `${fileLabel}_${typeLabel}.docx`
     }
     link.click()
