@@ -171,10 +171,10 @@ const detailsCollapsed = ref(false)
 watch(
   () => props.precheck,
   (value) => {
+    // 必需项通过即自动收起；有阻塞项时展开，方便查看细节
     const hasNoOutstandingIssues = Boolean(
       value &&
-      value.summary.can_run &&
-      value.summary.warning_issue_count === 0
+      value.summary.can_run
     )
     detailsCollapsed.value = hasNoOutstandingIssues
   },
