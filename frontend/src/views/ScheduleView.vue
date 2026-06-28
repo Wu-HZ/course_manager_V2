@@ -185,6 +185,8 @@
         </div>
       </template>
     </el-dialog>
+
+    <el-backtop :right="40" :bottom="40" :visibility-height="200" />
   </div>
 </template>
 
