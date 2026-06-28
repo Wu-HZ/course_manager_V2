@@ -150,16 +150,6 @@ const basicFields = [
     help: '定义全校统一预留给校本课程/合班课的固定时段。',
     note: '这些时间片会先锁给校本课程，普通课程不会排到这里；参与校本课程分组的教师在这些时段也会被占用。格式示例：1,4;1,5;3,4;3,5。星期从 0=周一开始，节次从 0 开始。',
   },
-  {
-    key: 'solver_num_workers',
-    code: 'BASE-3',
-    label: '求解器线程数',
-    type: 'number',
-    min: 1,
-    max: 16,
-    help: '控制 OR-Tools 求解器并行搜索使用的线程数。',
-    note: '通常建议接近机器可用 CPU 核心数。它影响求解速度和资源占用，不直接改变约束或评分规则。',
-  },
 ]
 
 const hardConstraintFields = [
@@ -335,7 +325,6 @@ const saving = ref(false)
 const form = ref({
   class_meeting_name: '班会',
   combined_class_slots: '1,4;1,5;3,4;3,5',
-  solver_num_workers: 4,
   h9_consecutive_forbidden: '1,2;3,4',
   h11_teacher_class_daily_max: 2,
   h14_homeroom_main_subject: true,
