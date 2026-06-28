@@ -54,21 +54,162 @@ def _make_page_break():
     return p
 
 
-def _set_paragraph_text(para_element, new_text: str):
-    """清空段落中所有 <w:r>，写入新文本（保留原段落属性如居中、间距）"""
-    ns_r = qn('w:r')
-    for r in list(para_element.findall(ns_r)):
+# 页面度量常数（twips），用于让段落左右边界与表格对齐
+# 模板: A4 横向 16838×11906, 左右页边距 1440, 表格宽 12678 居中
+PAGE_WIDTH = 16838
+PAGE_MARGIN = 1440
+TABLE_WIDTH = 12678
+# 表格相对文本区的左右缩进值
+TABLE_LEFT_INDENT = (PAGE_WIDTH - TABLE_WIDTH) // 2 - PAGE_MARGIN  # = 640
+TABLE_RIGHT_INDENT = TABLE_LEFT_INDENT
+# 头像/落款/日期相对表格边缘的微调距离（约一个中文字的间距）
+INNER_INDENT = 300
+
+
+def _ensure_pPr(para_element):
+    """获取或创建段落属性元素"""
+    pPr = para_element.find(qn('w:pPr'))
+    if pPr is None:
+        pPr = etree.SubElement(para_element, qn('w:pPr'))
+    return pPr
+
+
+def _apply_indent(para_element, *, left: int = None, right: int = None,
+                  alignment: str = None):
+    """为段落设置左右缩进（覆盖旧值），可选对齐方式"""
+    pPr = _ensure_pPr(para_element)
+    ind = pPr.find(qn('w:ind'))
+    if ind is None:
+        ind = etree.Element(qn('w:ind'))
+        pPr.insert(0, ind)
+    if left is not None:
+        ind.set(qn('w:left'), str(left))
+    if right is not None:
+        ind.set(qn('w:right'), str(right))
+    if alignment:
+        jc = pPr.find(qn('w:jc'))
+        if jc is None:
+            jc = etree.Element(qn('w:jc'))
+            pPr.insert(0, jc)
+        jc.set(qn('w:val'), alignment)
+
+
+def _clear_paragraph_runs(para_element):
+    """移除段落中所有 <w:r>"""
+    for r in list(para_element.findall(qn('w:r'))):
         para_element.remove(r)
-    if not new_text:
+
+
+def _add_paragraph_run(para_element, text: str, *, bold: bool = True, size_pt: int = 0):
+    """向段落添加一个 run（可选字号，单位 pt）"""
+    if not text:
         return
-    # 从原段落中找一个 rPr 做参考
     r = etree.SubElement(para_element, qn('w:r'))
     rPr = etree.SubElement(r, qn('w:rPr'))
     etree.SubElement(rPr, qn('w:b'))
     etree.SubElement(rPr, qn('w:bCs'))
+    if size_pt > 0:
+        sz_str = str(size_pt * 2)  # half-points
+        sz = etree.SubElement(rPr, qn('w:sz'))
+        sz.set(qn('w:val'), sz_str)
+        szCs = etree.SubElement(rPr, qn('w:szCs'))
+        szCs.set(qn('w:val'), sz_str)
     t = etree.SubElement(r, qn('w:t'))
-    t.text = new_text
+    t.text = text
     t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
+
+
+def _set_paragraph_text(para_element, new_text: str):
+    """清空段落并写入纯文本（保留原属性）"""
+    _clear_paragraph_runs(para_element)
+    if new_text:
+        _add_paragraph_run(para_element, new_text)
+
+
+def _set_subtitle_text(para_element, school_semester: str, target_name: str):
+    """副标题：学校+学期靠左（较表格左边缘略右缩），教师/班级名靠右（较表格右边缘略左缩）
+
+    左右缩进 = 表格缩进 + INNER_INDENT，使文本从表格边缘向内收敛。
+    右制表位 = TABLE_WIDTH - INNER_INDENT，让名字也与右边缘保持相同间距。
+    """
+    _clear_paragraph_runs(para_element)
+    if not school_semester and not target_name:
+        _set_paragraph_text(para_element, '')
+        return
+
+    pPr = _ensure_pPr(para_element)
+    jc_old = pPr.find(qn('w:jc'))
+    if jc_old is not None:
+        pPr.remove(jc_old)
+    # 清理模板残留的段落级 rPr
+    old_rPr = pPr.find(qn('w:rPr'))
+    if old_rPr is not None:
+        pPr.remove(old_rPr)
+
+    _apply_indent(para_element,
+                  left=TABLE_LEFT_INDENT + INNER_INDENT,
+                  right=TABLE_RIGHT_INDENT + INNER_INDENT,
+                  alignment='left')
+
+    # 右制表位：段落内可用宽度 = TABLE_WIDTH - INNER_INDENT
+    tabs = pPr.find(qn('w:tabs'))
+    if tabs is None:
+        tabs = etree.SubElement(pPr, qn('w:tabs'))
+    else:
+        for t in list(tabs):
+            tabs.remove(t)
+    tab = etree.SubElement(tabs, qn('w:tab'))
+    tab.set(qn('w:val'), 'right')
+    tab.set(qn('w:pos'), str(TABLE_WIDTH - INNER_INDENT))
+
+    if school_semester:
+        _add_paragraph_run(para_element, school_semester, size_pt=16)
+
+    r_tab = etree.SubElement(para_element, qn('w:r'))
+    etree.SubElement(r_tab, qn('w:tab'))
+
+    if target_name:
+        _add_paragraph_run(para_element, target_name, size_pt=16)
+
+
+def _set_footer_center(para_element, text: str):
+    """落款或日期：在行右侧区域居中对齐，段间距紧凑"""
+    _clear_paragraph_runs(para_element)
+    pPr = _ensure_pPr(para_element)
+    # 清理模板残留的段落级 rPr（旧字号会干扰）
+    old_rPr = pPr.find(qn('w:rPr'))
+    if old_rPr is not None:
+        pPr.remove(old_rPr)
+    # 左缩进推到表格右 1/4 区域再居中；右缩进保持与表格右边缘的间距
+    ind = pPr.find(qn('w:ind'))
+    if ind is None:
+        ind = etree.Element(qn('w:ind'))
+        pPr.insert(0, ind)
+    ind.set(qn('w:left'), str(TABLE_LEFT_INDENT + TABLE_WIDTH * 3 // 4))
+    ind.set(qn('w:right'), str(TABLE_RIGHT_INDENT + INNER_INDENT))
+    # 对齐
+    jc = pPr.find(qn('w:jc'))
+    if jc is None:
+        jc = etree.Element(qn('w:jc'))
+        pPr.insert(0, jc)
+    jc.set(qn('w:val'), 'center')
+    # 段间距：单倍行距，段前段后为 0
+    spacing = pPr.find(qn('w:spacing'))
+    if spacing is None:
+        spacing = etree.Element(qn('w:spacing'))
+        pPr.insert(0, spacing)
+    spacing.set(qn('w:before'), '0')
+    spacing.set(qn('w:after'), '0')
+    spacing.set(qn('w:line'), '240')
+    spacing.set(qn('w:lineRule'), 'auto')
+    # 关闭 snapToGrid，否则 docGrid(312) 会撑大段落间距
+    snap = pPr.find(qn('w:snapToGrid'))
+    if snap is None:
+        snap = etree.Element(qn('w:snapToGrid'))
+        pPr.append(snap)
+    snap.set(qn('w:val'), '0')
+    if text:
+        _add_paragraph_run(para_element, text, size_pt=14)
 
 
 def _get_table_cells(tbl_element):
@@ -243,8 +384,7 @@ def _build_entry_maps(result_id, view_type, targets):
                     cid = e.school_class_id
                     if cid in class_indices:
                         line1 = f'{line1}({class_indices[cid]})'
-                    line2 = e.school_class.name if e.school_class_id else ''
-                    cell_data.append((e.day, e.period, line1, line2))
+                    cell_data.append((e.day, e.period, line1, ''))
             maps[t.id] = cell_data
         return maps
 
@@ -372,6 +512,13 @@ def export_word(request):
     # ── 打开模板，定位页面元素 ──
     doc = Document(str(TEMPLATE_PATH))
     body = doc.element.body
+
+    # 压小下边距，防止落款/时间溢出到第二页（原 1236 → 450）
+    sect_pr = body.find(qn('w:sectPr'))
+    if sect_pr is not None:
+        pg_mar = sect_pr.find(qn('w:pgMar'))
+        if pg_mar is not None:
+            pg_mar.set(qn('w:bottom'), '450')
     all_children = list(body)
 
     # 模板章节：标题、副标题、表格、空段落、落款、日期、sectPr
@@ -394,26 +541,24 @@ def export_word(request):
     # ── 填充第一页（直接修改模板原元素）─
     first = targets[0]
     first_data = cell_data_maps.get(first.id, [])
-    # 副标题："学校名  学期  —  班级名/教师名"
-    _set_paragraph_text(subtitle_el, f'{school_name}  {semester}  —  {first.name}')
+    _set_subtitle_text(subtitle_el, f'{school_name}  {semester}', first.name)
     _fill_table(table_el, first_data)
-    _set_paragraph_text(footer_el, footer_text)
-    _set_paragraph_text(date_el, date_text)
+    _set_footer_center(footer_el, footer_text)
+    _set_footer_center(date_el, date_text)
 
     # ── 后续页面：克隆整页结构 ──
-    last_page_end = date_el  # 追踪每页最后一个元素
+    last_page_end = date_el
     for target in targets[1:]:
         pb = _make_page_break()
         last_page_end.addnext(pb)
         cloned = _clone_page_elements(body, page_template)
-        # cloned 顺序: title, subtitle, table, spacers..., footer, date
         cl_title, cl_subtitle, cl_table = cloned[0], cloned[1], cloned[2]
         cl_footer, cl_date = cloned[-2], cloned[-1]
 
-        _set_paragraph_text(cl_subtitle, f'{school_name}  {semester}  —  {target.name}')
+        _set_subtitle_text(cl_subtitle, f'{school_name}  {semester}', target.name)
         _fill_table(cl_table, cell_data_maps.get(target.id, []))
-        _set_paragraph_text(cl_footer, footer_text)
-        _set_paragraph_text(cl_date, date_text)
+        _set_footer_center(cl_footer, footer_text)
+        _set_footer_center(cl_date, date_text)
 
         last_page_end = _insert_sequence_after(pb, cloned)
 
