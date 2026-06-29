@@ -17,8 +17,7 @@ from .serializers import (
     ScheduleResultSerializer, ScheduleResultListSerializer,
     ScheduleResultUpdateSerializer, ScheduleEntrySerializer
 )
-from .engine import run_scheduler  # 旧引擎，保留以便回退
-from .service import run as run_engine_v2  # 新联合 CP-SAT 引擎
+from .service import run as run_schedule_engine
 from .time_slots import TOTAL_SLOTS
 
 
@@ -43,7 +42,7 @@ def run_schedule(request):
     gap_raw = request.data.get('relative_gap')
     gap_percent = float(gap_raw) if gap_raw is not None else 8.0
 
-    out = run_engine_v2(
+    out = run_schedule_engine(
         time_limit_seconds=time_limit,
         num_workers=num_workers,
         relative_gap_limit=gap_percent / 100.0,
