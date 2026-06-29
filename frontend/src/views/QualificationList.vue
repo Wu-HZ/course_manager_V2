@@ -25,6 +25,7 @@
                 </div>
               </th>
               <th class="action-col">操作</th>
+              <th class="spacer-col"></th>
             </tr>
           </thead>
           <tbody>
@@ -45,6 +46,7 @@
                   <el-button size="small" text type="warning" @click="selectNoneForTeacher(t.id)">清空</el-button>
                 </div>
               </td>
+              <td class="spacer-col"></td>
             </tr>
           </tbody>
         </table>
@@ -169,6 +171,7 @@ onMounted(loadData)
 }
 
 .qual-grid__table {
+  table-layout: fixed;
   width: 100%;
   min-width: 700px;
   border-collapse: collapse;
@@ -199,7 +202,7 @@ onMounted(loadData)
   left: 0;
   z-index: 1;
   background: #fafafa !important;
-  min-width: 70px;
+  width: 70px;
   text-align: left !important;
   padding-left: 12px !important;
   font-size: 13px;
@@ -208,7 +211,6 @@ onMounted(loadData)
 
 /* 课程列表头 */
 .subject-head-col {
-  min-width: 82px;
   width: 82px;
   line-height: 1.3;
   vertical-align: bottom;
@@ -249,11 +251,21 @@ onMounted(loadData)
   right: 0;
   z-index: 1;
   background: #fff !important;
-  min-width: 110px;
   width: 110px;
 }
 
 .qual-grid__table thead .action-col {
+  background: #f5f7fa !important;
+}
+
+/* 空列 — 吃多余宽度，保护其他列不被撑开 */
+.spacer-col {
+  width: auto;
+  background: #fff !important;
+  border: none !important;
+}
+
+.qual-grid__table thead .spacer-col {
   background: #f5f7fa !important;
 }
 
@@ -274,10 +286,10 @@ onMounted(loadData)
 
   .qual-grid__table { min-width: 560px; }
 
-  .subject-head-col { min-width: 72px; width: 72px; }
+  .subject-head-col { width: 72px; }
 
-  .teacher-head-col { min-width: 64px; padding-left: 10px !important; }
+  .teacher-head-col { width: 64px; padding-left: 10px !important; }
 
-  .action-col { min-width: 96px; width: 96px; }
+  .action-col { width: 96px; }
 }
 </style>
