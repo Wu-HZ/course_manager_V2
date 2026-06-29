@@ -1,114 +1,147 @@
 <template>
   <div class="page-container">
-    <h2>教师资质管理</h2>
+    <div class="page-header">
+      <h2>教师资质管理</h2>
+    </div>
 
     <el-alert type="info" :closable="false" style="margin-bottom: 20px">
-      这里只管理普通课程的可授课教师。校本课程由教师管理中的参与设置控制，班会由班级管理中的班主任控制。
+      勾选后自动保存。校本课程由教师管理中的参与设置控制，班会由班级管理中的班主任控制。
     </el-alert>
 
-    <el-card>
-      <div class="subject-tabs">
-        <span class="subject-tabs-label">选择课程：</span>
-        <el-radio-group v-model="selectedSubject" @change="loadQualifications">
-          <el-radio-button
-            v-for="s in qualificationSubjects"
-            :key="s.id"
-            :value="s.id"
-          >
-            {{ s.name }}
-          </el-radio-button>
-        </el-radio-group>
+    <div v-if="qualificationSubjects.length && teachers.length" class="qual-grid">
+      <div class="qual-grid__scroll">
+        <table class="qual-grid__table">
+          <thead>
+            <tr>
+              <th class="subject-col">课程</th>
+              <th
+                v-for="t in teachers"
+                :key="t.id"
+                class="teacher-col"
+              >
+                <div class="teacher-col__name">{{ t.name }}</div>
+                <div v-if="t.travel_group_name" class="teacher-col__group">{{ t.travel_group_name }}</div>
+              </th>
+              <th class="action-col">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="s in qualificationSubjects" :key="s.id">
+              <td class="subject-col">
+                <div class="subject-col__name">
+                  {{ s.name }}
+                  <el-tag v-if="s.is_main_subject" type="danger" size="small" class="subject-col__tag">主</el-tag>
+                </div>
+                <div class="subject-col__count">
+                  {{ subjectCount(s.id) }}/{{ teachers.length }}
+                </div>
+              </td>
+              <td
+                v-for="t in teachers"
+                :key="`${s.id}-${t.id}`"
+                class="check-col"
+                :class="{ 'col-checked': isChecked(s.id, t.id) }"
+                @click="toggle(s.id, t.id)"
+              >
+                <el-icon v-if="isChecked(s.id, t.id)" class="check-icon" color="#409eff"><Check /></el-icon>
+              </td>
+              <td class="action-col">
+                <div class="action-btns">
+                  <el-button size="small" text type="primary" @click="selectAllForSubject(s.id)">全选</el-button>
+                  <el-button size="small" text type="warning" @click="selectNoneForSubject(s.id)">清空</el-button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
+    </div>
 
-      <div v-if="selectedSubject" class="teacher-selection">
-        <div class="teacher-selection-header">
-          <h4>可授课教师（勾选后自动保存）</h4>
-          <div class="select-buttons">
-            <el-button size="small" @click="selectAll">全选</el-button>
-            <el-button size="small" @click="selectNone">全不选</el-button>
-          </div>
-        </div>
-        <el-checkbox-group v-model="selectedTeachers" @change="saveQualifications">
-          <el-checkbox
-            v-for="t in teachers"
-            :key="t.id"
-            :label="t.id"
-            :style="{ width: '150px', marginBottom: '10px' }"
-          >
-            {{ t.name }}
-            <span v-if="t.travel_group_name" style="color: #909399; font-size: 12px">
-              ({{ t.travel_group_name }})
-            </span>
-          </el-checkbox>
-        </el-checkbox-group>
-      </div>
-
-      <el-empty v-else description="请先选择课程" />
-    </el-card>
-
-    <el-card style="margin-top: 20px">
-      <template #header>资质汇总</template>
-      <el-table :data="summary" stripe border>
-        <el-table-column prop="subject_name" label="课程" />
-        <el-table-column label="可授课教师">
-          <template #default="{ row }">
-            <el-tag
-              v-for="t in row.teachers"
-              :key="t"
-              size="small"
-              style="margin-right: 5px"
-            >
-              {{ t }}
-            </el-tag>
-            <span v-if="!row.teachers.length" style="color: #909399">未设置</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="教师数" width="80">
-          <template #default="{ row }">
-            {{ row.teachers.length }}
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
+    <el-empty v-else description="请先添加课程和教师数据" />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Check } from '@element-plus/icons-vue'
 import api from '../api'
 import { getSubjects } from '../api/subjects'
 import { getTeachers } from '../api/teachers'
 
 const subjects = ref([])
 const teachers = ref([])
-const selectedSubject = ref(null)
-const selectedTeachers = ref([])
-const allQualifications = ref([])
 const classMeetingName = ref('班会')
-let saveTimeout = null
+// `${subjectId}-${teacherId}` → true
+const checked = reactive({})
+// 防抖定时器: subjectId → timeoutId
+const saveTimers = {}
 
-const qualificationSubjects = computed(() => (
-  subjects.value.filter(subject => (
-    !subject.is_combined_class && subject.name !== classMeetingName.value
-  ))
-))
+// 只对普通课程管理资质
+const qualificationSubjects = computed(() =>
+  subjects.value.filter(s => !s.is_combined_class && s.name !== classMeetingName.value)
+)
 
-const summary = computed(() => {
-  const teacherMap = {}
-  teachers.value.forEach(t => { teacherMap[t.id] = t.name })
+const isChecked = (subjectId, teacherId) => !!checked[`${subjectId}-${teacherId}`]
 
-  return qualificationSubjects.value.map(s => {
-    const teacherIds = allQualifications.value
-      .filter(q => q.subject === s.id)
-      .map(q => q.teacher)
-    return {
-      subject_id: s.id,
-      subject_name: s.name,
-      teachers: teacherIds.map(id => teacherMap[id] || id)
+const subjectCount = (subjectId) => {
+  let n = 0
+  for (const t of teachers.value) {
+    if (checked[`${subjectId}-${t.id}`]) n++
+  }
+  return n
+}
+
+const collectTeacherIds = (subjectId) =>
+  teachers.value.filter(t => checked[`${subjectId}-${t.id}`]).map(t => t.id)
+
+const saveSubject = async (subjectId) => {
+  try {
+    await api.post(`/subjects/${subjectId}/qualifications/set/`, {
+      teacher_ids: collectTeacherIds(subjectId)
+    })
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || '保存失败')
+  }
+}
+
+const debouncedSave = (subjectId) => {
+  if (saveTimers[subjectId]) clearTimeout(saveTimers[subjectId])
+  saveTimers[subjectId] = setTimeout(() => {
+    delete saveTimers[subjectId]
+    saveSubject(subjectId)
+  }, 400)
+}
+
+const toggle = (subjectId, teacherId) => {
+  const key = `${subjectId}-${teacherId}`
+  if (checked[key]) {
+    delete checked[key]
+  } else {
+    checked[key] = true
+  }
+  debouncedSave(subjectId)
+}
+
+const setSubjectTeachers = (subjectId, teacherIds, add) => {
+  for (const tid of teacherIds) {
+    const key = `${subjectId}-${tid}`
+    if (add) {
+      checked[key] = true
+    } else {
+      delete checked[key]
     }
-  })
-})
+  }
+  debouncedSave(subjectId)
+}
+
+const selectAllForSubject = (subjectId) => {
+  setSubjectTeachers(subjectId, teachers.value.map(t => t.id), true)
+}
+
+const selectNoneForSubject = (subjectId) => {
+  setSubjectTeachers(subjectId, teachers.value.map(t => t.id), false)
+}
 
 const loadData = async () => {
   const [subjectList, teacherList, qualificationList, settings] = await Promise.all([
@@ -119,66 +152,161 @@ const loadData = async () => {
   ])
   subjects.value = subjectList
   teachers.value = teacherList
-  allQualifications.value = qualificationList
   classMeetingName.value = settings.class_meeting_name || '班会'
 
-  if (!qualificationSubjects.value.some(subject => subject.id === selectedSubject.value)) {
-    selectedSubject.value = null
-    selectedTeachers.value = []
+  // 初始化勾选状态
+  for (const key of Object.keys(checked)) delete checked[key]
+  for (const q of qualificationList) {
+    checked[`${q.subject}-${q.teacher}`] = true
   }
 }
 
-const loadQualifications = async () => {
-  if (!selectedSubject.value) {
-    selectedTeachers.value = []
-    return
+onBeforeUnmount(() => {
+  // 立即 flush 所有等待中的保存
+  for (const [subjectId, timer] of Object.entries(saveTimers)) {
+    clearTimeout(timer)
+    saveSubject(Number(subjectId))
   }
-  try {
-    const res = await api.get(`/subjects/${selectedSubject.value}/qualifications/`)
-    selectedTeachers.value = res.teacher_ids || []
-  } catch (e) {
-    selectedTeachers.value = []
-    ElMessage.error(e.response?.data?.detail || '加载教师资质失败')
-  }
-}
-
-const saveQualifications = () => {
-  // 防抖，避免频繁保存
-  if (saveTimeout) clearTimeout(saveTimeout)
-  saveTimeout = setTimeout(async () => {
-    try {
-      await api.post(`/subjects/${selectedSubject.value}/qualifications/set/`, {
-        teacher_ids: selectedTeachers.value
-      })
-      // 刷新汇总数据
-      allQualifications.value = await api.get('/teacher-qualifications/')
-      ElMessage.success('已保存')
-    } catch (e) {
-      ElMessage.error(e.response?.data?.detail || '保存失败')
-    }
-  }, 500)
-}
-
-const selectAll = () => {
-  selectedTeachers.value = teachers.value.map(t => t.id)
-  saveQualifications()
-}
-
-const selectNone = () => {
-  selectedTeachers.value = []
-  saveQualifications()
-}
+})
 
 onMounted(loadData)
 </script>
 
 <style scoped>
-.page-container { background: #fff; padding: 20px; border-radius: 4px; }
-.page-container h2 { margin-bottom: 20px; }
-.subject-tabs { margin-bottom: 20px; }
-.subject-tabs-label { font-weight: bold; margin-right: 10px; color: #606266; }
-.teacher-selection { margin-top: 20px; }
-.teacher-selection-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-.teacher-selection-header h4 { margin: 0; color: #606266; }
-.select-buttons { display: flex; gap: 8px; }
+.page-container { background: #fff; padding: 20px; border-radius: 8px; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.page-header h2 { margin: 0; }
+
+/* ---------- 网格 ---------- */
+.qual-grid__scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.qual-grid__table {
+  width: 100%;
+  min-width: 700px;
+  border-collapse: collapse;
+}
+
+.qual-grid__table th,
+.qual-grid__table td {
+  border: 1px solid #ebeef5;
+  padding: 6px 8px;
+  text-align: center;
+  height: 44px;
+  white-space: nowrap;
+}
+
+.qual-grid__table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f5f7fa;
+  font-weight: 600;
+  font-size: 13px;
+  color: #303133;
+}
+
+/* 课程列（首列 sticky） */
+.subject-col {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #fafafa !important;
+  min-width: 120px;
+  text-align: left !important;
+  padding-left: 14px !important;
+  font-weight: 600;
+}
+
+.subject-col__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.subject-col__tag {
+  flex-shrink: 0;
+}
+
+.subject-col__count {
+  font-size: 11px;
+  font-weight: 400;
+  color: #909399;
+  margin-top: 2px;
+}
+
+/* 教师列表头 */
+.teacher-col {
+  min-width: 80px;
+  width: 80px;
+  line-height: 1.3;
+}
+
+.teacher-col__name {
+  font-size: 13px;
+}
+
+.teacher-col__group {
+  font-size: 11px;
+  font-weight: 400;
+  color: #909399;
+}
+
+/* 勾选列 */
+.check-col {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.check-col:hover {
+  background: #ecf5ff;
+}
+
+.col-checked {
+  background: #ecf5ff;
+}
+
+.check-icon {
+  font-size: 18px;
+}
+
+/* 操作列 */
+.action-col {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: #fff !important;
+  min-width: 110px;
+  width: 110px;
+}
+
+.qual-grid__table thead .action-col {
+  background: #f5f7fa !important;
+}
+
+.action-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+}
+
+.action-btns .el-button {
+  padding: 2px 6px;
+  font-size: 12px;
+}
+
+@media (max-width: 768px) {
+  .page-container { padding: 16px; }
+
+  .qual-grid__table { min-width: 560px; }
+
+  .teacher-col { min-width: 72px; width: 72px; }
+
+  .subject-col { min-width: 100px; padding-left: 10px !important; }
+
+  .action-col { min-width: 96px; width: 96px; }
+}
 </style>
