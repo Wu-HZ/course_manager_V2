@@ -24,8 +24,8 @@
                   {{ subjectCount(s.id) }}/{{ teachers.length }}
                 </div>
               </th>
-              <th class="action-col">操作</th>
               <th class="spacer-col"></th>
+              <th class="action-col">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -40,13 +40,13 @@
               >
                 <el-icon v-if="isChecked(s.id, t.id)" class="check-icon" color="#409eff"><Check /></el-icon>
               </td>
+              <td class="spacer-col"></td>
               <td class="action-col">
                 <div class="action-btns">
                   <el-button size="small" text type="primary" @click="selectAllForTeacher(t.id)">全选</el-button>
                   <el-button size="small" text type="warning" @click="selectNoneForTeacher(t.id)">清空</el-button>
                 </div>
               </td>
-              <td class="spacer-col"></td>
             </tr>
           </tbody>
         </table>
@@ -261,12 +261,6 @@ onMounted(loadData)
 /* 空列 — 吃多余宽度，保护其他列不被撑开 */
 .spacer-col {
   width: auto;
-  background: #fff !important;
-  border: none !important;
-}
-
-.qual-grid__table thead .spacer-col {
-  background: #f5f7fa !important;
 }
 
 .action-btns {
