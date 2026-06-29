@@ -19,10 +19,7 @@
                 :key="s.id"
                 class="subject-head-col"
               >
-                <div class="subject-head__name">
-                  {{ s.name }}
-                  <el-tag v-if="s.is_main_subject" type="danger" size="small">主</el-tag>
-                </div>
+                <div class="subject-head__name">{{ s.name }}</div>
                 <div class="subject-head__count">
                   {{ subjectCount(s.id) }}/{{ teachers.length }}
                 </div>
@@ -32,10 +29,7 @@
           </thead>
           <tbody>
             <tr v-for="t in teachers" :key="t.id">
-              <td class="teacher-head-col">
-                <div class="teacher-col__name">{{ t.name }}</div>
-                <div v-if="t.travel_group_name" class="teacher-col__group">{{ t.travel_group_name }}</div>
-              </td>
+              <td class="teacher-head-col">{{ t.name }}</td>
               <td
                 v-for="s in qualificationSubjects"
                 :key="`${t.id}-${s.id}`"
@@ -205,20 +199,11 @@ onMounted(loadData)
   left: 0;
   z-index: 1;
   background: #fafafa !important;
-  min-width: 110px;
+  min-width: 70px;
   text-align: left !important;
   padding-left: 12px !important;
-}
-
-.teacher-col__name {
   font-size: 13px;
   font-weight: 600;
-}
-
-.teacher-col__group {
-  font-size: 11px;
-  font-weight: 400;
-  color: #909399;
 }
 
 /* 课程列表头 */
@@ -231,11 +216,6 @@ onMounted(loadData)
 
 .subject-head__name {
   font-size: 13px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  flex-wrap: wrap;
 }
 
 .subject-head__count {
@@ -296,7 +276,7 @@ onMounted(loadData)
 
   .subject-head-col { min-width: 72px; width: 72px; }
 
-  .teacher-head-col { min-width: 96px; padding-left: 10px !important; }
+  .teacher-head-col { min-width: 64px; padding-left: 10px !important; }
 
   .action-col { min-width: 96px; width: 96px; }
 }
