@@ -29,45 +29,44 @@
     </el-alert>
 
     <el-alert v-else-if="selectedClassId" type="info" :closable="false" style="margin-bottom: 20px">
-      <div class="legend">
-        <span>操作说明：先在下方选中课程，再点击课表单元格填入。点击已锁定单元格可删除。</span>
-      </div>
+      操作说明：先在下方选中课程，再点击课表单元格填入。点击已锁定单元格可删除。
     </el-alert>
 
-    <div v-if="selectedClassId" class="schedule-grid">
-      <table border="1" cellspacing="0">
-        <thead>
-          <tr>
-            <th class="period-col">节次</th>
-            <th v-for="(dayName, dayIdx) in dayNames" :key="dayIdx" class="day-col">{{ dayName }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="period in maxPeriods" :key="period">
-            <td class="period-col">第{{ period }}节</td>
-            <td
-              v-for="(dayName, dayIdx) in dayNames"
-              :key="dayIdx"
-              class="cell"
-              :class="getCellClass(dayIdx, period - 1)"
-              @click="handleCellClick(dayIdx, period - 1)"
-            >
-              <template v-if="isSpecialSlot(dayIdx, period - 1)">
-                <span class="special">{{ getSpecialLabel(dayIdx, period - 1) }}</span>
-              </template>
-              <template v-else-if="getLock(dayIdx, period - 1)">
-                <div class="locked-cell">
-                  <div class="subject-name">{{ getLock(dayIdx, period - 1).subject_name }}</div>
-                  <div class="teacher-name">{{ getLock(dayIdx, period - 1).teacher_name }}</div>
-                </div>
-              </template>
-              <template v-else>
-                <span class="empty-cell">+</span>
-              </template>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <div v-if="selectedClassId" class="lock-grid">
+      <div class="lock-grid__scroll">
+        <table class="lock-grid__table">
+          <thead>
+            <tr>
+              <th class="day-col"></th>
+              <th v-for="period in maxPeriods" :key="period">第{{ period }}节</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="day in days" :key="day.key">
+              <td class="day-col">{{ day.label }}</td>
+              <td
+                v-for="period in maxPeriods"
+                :key="`${day.key}-${period}`"
+                :class="getCellClass(day.index, period - 1)"
+                @click="handleCellClick(day.index, period - 1)"
+              >
+                <template v-if="isSpecialSlot(day.index, period - 1)">
+                  <span class="special">{{ getSpecialLabel(day.index, period - 1) }}</span>
+                </template>
+                <template v-else-if="getLock(day.index, period - 1)">
+                  <div class="cell-content">
+                    <div class="subject">{{ getLock(day.index, period - 1).subject_name }}</div>
+                    <div class="teacher">{{ getLock(day.index, period - 1).teacher_name }}</div>
+                  </div>
+                </template>
+                <template v-else>
+                  <span class="empty-cell">+</span>
+                </template>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <!-- 可用课程列表 -->
@@ -116,7 +115,15 @@ const locks = ref([])
 const assignments = ref([])  // 该班级的所有授课分配
 const selectedAssignmentId = ref(null)  // 当前选中的课程分配
 
-const dayNames = ['周一', '周二', '周三', '周四', '周五']
+const days = [
+  { key: 'mon', label: '周一', index: 0 },
+  { key: 'tue', label: '周二', index: 1 },
+  { key: 'wed', label: '周三', index: 2 },
+  { key: 'thu', label: '周四', index: 3 },
+  { key: 'fri', label: '周五', index: 4 }
+]
+
+const periodsPerDay = { 0: 6, 1: 6, 2: 6, 3: 6, 4: 4 }
 const maxPeriods = 6
 
 // 特殊时段
@@ -204,21 +211,25 @@ const getLock = (day, period) => {
 const isSpecialSlot = (day, period) => {
   if (day === fridayClassMeeting.day && period === fridayClassMeeting.period) return true
   if (combinedSlots.some(s => s.day === day && s.period === period)) return true
-  if (day === 4 && period >= 4) return true
+  if (period >= periodsPerDay[day]) return true
   return false
 }
+
+const isDisabled = (day, period) => period >= periodsPerDay[day]
 
 const getSpecialLabel = (day, period) => {
   if (day === fridayClassMeeting.day && period === fridayClassMeeting.period) return '班会'
   if (combinedSlots.some(s => s.day === day && s.period === period)) return '校本课程'
-  if (day === 4 && period >= 4) return '-'
+  if (period >= periodsPerDay[day]) return '—'
   return ''
 }
 
 const getCellClass = (day, period) => {
   if (isSpecialSlot(day, period)) return 'special-cell'
   if (getLock(day, period)) return 'has-lock'
-  return ''
+  if (isDisabled(day, period)) return 'disabled-cell'
+  if (period < 4) return 'am'
+  return 'pm'
 }
 
 // 选中课程
@@ -315,7 +326,7 @@ onMounted(loadBase)
 </script>
 
 <style scoped>
-.page-container { background: #fff; padding: 20px; border-radius: 4px; }
+.page-container { background: #fff; padding: 20px; border-radius: 8px; }
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
 .page-header h2 { margin: 0; }
 
@@ -350,37 +361,77 @@ onMounted(loadBase)
   color: #fff;
 }
 
-.schedule-grid { overflow-x: auto; }
-.schedule-grid table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-.schedule-grid th, .schedule-grid td {
+/* 锁定课表 - 与 TimetableGrid 一致 */
+.lock-grid__scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.lock-grid__table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+}
+
+.lock-grid__table th,
+.lock-grid__table td {
+  border: 1px solid #dcdfe6;
   padding: 8px;
   text-align: center;
-  border: 1px solid #dcdfe6;
-  height: 60px;
+  min-width: 90px;
+  height: 70px;
 }
-.schedule-grid th { background: #f5f7fa; font-weight: bold; }
 
-.period-col { width: 70px; background: #f5f7fa; font-weight: bold; }
-.day-col { width: 18%; }
+.lock-grid__table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f5f7fa;
+  font-weight: bold;
+}
 
-.cell { cursor: pointer; transition: background 0.2s; }
-.cell:hover { background: #ecf5ff; }
+.day-col {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 60px;
+  min-width: 60px !important;
+  background: #f5f7fa !important;
+  font-weight: bold;
+}
 
-.special-cell {
-  background: #f0f0f0;
+.cell-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.subject {
+  font-weight: bold;
+  color: #303133;
+}
+
+.teacher {
+  font-size: 12px;
   color: #909399;
-  cursor: default;
 }
-.special-cell:hover { background: #f0f0f0; }
 
-.has-lock { background: #d9ecff; }
+.am { background: #f0f9eb; cursor: pointer; }
+.pm { background: #fdf6ec; cursor: pointer; }
+.has-lock { background: #d9ecff; cursor: pointer; }
 .has-lock:hover { background: #c6e2ff; }
+.special-cell { background: #f5f5f5; cursor: default; }
+.special-cell:hover { background: #f5f5f5; }
+.disabled-cell { background: #f5f5f5; cursor: default; }
 
-.locked-cell .subject-name { font-weight: bold; color: #409eff; font-size: 14px; }
-.locked-cell .teacher-name { color: #909399; font-size: 12px; margin-top: 2px; }
+.am:hover,
+.pm:hover {
+  opacity: 0.85;
+  box-shadow: inset 0 0 0 2px #409eff;
+}
 
-.empty-cell { color: #dcdfe6; font-size: 20px; }
-.special { color: #909399; font-size: 12px; }
+.empty-cell { color: #c0c4cc; font-size: 20px; }
+.special { color: #909399; font-size: 13px; }
 
 /* 可用课程面板 */
 .course-panel {
@@ -484,5 +535,43 @@ onMounted(loadBase)
 
 .course-status .full {
   color: #f56c6c;
+}
+
+@media (max-width: 768px) {
+  .page-container {
+    padding: 16px;
+  }
+
+  .lock-grid__table {
+    min-width: 520px;
+  }
+
+  .lock-grid__table th,
+  .lock-grid__table td {
+    min-width: 72px;
+    height: 64px;
+    padding: 6px;
+  }
+
+  .day-col {
+    width: 52px;
+    min-width: 52px !important;
+  }
+
+  .subject {
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  .teacher {
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
+  .panel-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
 }
 </style>
