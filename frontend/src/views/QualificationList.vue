@@ -13,32 +13,32 @@
         <table class="qual-grid__table">
           <thead>
             <tr>
-              <th class="subject-col">课程</th>
+              <th class="teacher-head-col">教师</th>
               <th
-                v-for="t in teachers"
-                :key="t.id"
-                class="teacher-col"
+                v-for="s in qualificationSubjects"
+                :key="s.id"
+                class="subject-head-col"
               >
-                <div class="teacher-col__name">{{ t.name }}</div>
-                <div v-if="t.travel_group_name" class="teacher-col__group">{{ t.travel_group_name }}</div>
+                <div class="subject-head__name">
+                  {{ s.name }}
+                  <el-tag v-if="s.is_main_subject" type="danger" size="small">主</el-tag>
+                </div>
+                <div class="subject-head__count">
+                  {{ subjectCount(s.id) }}/{{ teachers.length }}
+                </div>
               </th>
               <th class="action-col">操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="s in qualificationSubjects" :key="s.id">
-              <td class="subject-col">
-                <div class="subject-col__name">
-                  {{ s.name }}
-                  <el-tag v-if="s.is_main_subject" type="danger" size="small" class="subject-col__tag">主</el-tag>
-                </div>
-                <div class="subject-col__count">
-                  {{ subjectCount(s.id) }}/{{ teachers.length }}
-                </div>
+            <tr v-for="t in teachers" :key="t.id">
+              <td class="teacher-head-col">
+                <div class="teacher-col__name">{{ t.name }}</div>
+                <div v-if="t.travel_group_name" class="teacher-col__group">{{ t.travel_group_name }}</div>
               </td>
               <td
-                v-for="t in teachers"
-                :key="`${s.id}-${t.id}`"
+                v-for="s in qualificationSubjects"
+                :key="`${t.id}-${s.id}`"
                 class="check-col"
                 :class="{ 'col-checked': isChecked(s.id, t.id) }"
                 @click="toggle(s.id, t.id)"
@@ -47,8 +47,8 @@
               </td>
               <td class="action-col">
                 <div class="action-btns">
-                  <el-button size="small" text type="primary" @click="selectAllForSubject(s.id)">全选</el-button>
-                  <el-button size="small" text type="warning" @click="selectNoneForSubject(s.id)">清空</el-button>
+                  <el-button size="small" text type="primary" @click="selectAllForTeacher(t.id)">全选</el-button>
+                  <el-button size="small" text type="warning" @click="selectNoneForTeacher(t.id)">清空</el-button>
                 </div>
               </td>
             </tr>
@@ -62,7 +62,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Check } from '@element-plus/icons-vue'
 import api from '../api'
@@ -123,24 +123,24 @@ const toggle = (subjectId, teacherId) => {
   debouncedSave(subjectId)
 }
 
-const setSubjectTeachers = (subjectId, teacherIds, add) => {
-  for (const tid of teacherIds) {
-    const key = `${subjectId}-${tid}`
+const setTeacherForSubjects = (teacherId, subjectIds, add) => {
+  for (const sid of subjectIds) {
+    const key = `${sid}-${teacherId}`
     if (add) {
       checked[key] = true
     } else {
       delete checked[key]
     }
+    debouncedSave(sid)
   }
-  debouncedSave(subjectId)
 }
 
-const selectAllForSubject = (subjectId) => {
-  setSubjectTeachers(subjectId, teachers.value.map(t => t.id), true)
+const selectAllForTeacher = (teacherId) => {
+  setTeacherForSubjects(teacherId, qualificationSubjects.value.map(s => s.id), true)
 }
 
-const selectNoneForSubject = (subjectId) => {
-  setSubjectTeachers(subjectId, teachers.value.map(t => t.id), false)
+const selectNoneForTeacher = (teacherId) => {
+  setTeacherForSubjects(teacherId, qualificationSubjects.value.map(s => s.id), false)
 }
 
 const loadData = async () => {
@@ -154,20 +154,11 @@ const loadData = async () => {
   teachers.value = teacherList
   classMeetingName.value = settings.class_meeting_name || '班会'
 
-  // 初始化勾选状态
   for (const key of Object.keys(checked)) delete checked[key]
   for (const q of qualificationList) {
     checked[`${q.subject}-${q.teacher}`] = true
   }
 }
-
-onBeforeUnmount(() => {
-  // 立即 flush 所有等待中的保存
-  for (const [subjectId, timer] of Object.entries(saveTimers)) {
-    clearTimeout(timer)
-    saveSubject(Number(subjectId))
-  }
-})
 
 onMounted(loadData)
 </script>
@@ -208,50 +199,50 @@ onMounted(loadData)
   color: #303133;
 }
 
-/* 课程列（首列 sticky） */
-.subject-col {
+/* 教师首列 (sticky left) */
+.teacher-head-col {
   position: sticky;
   left: 0;
   z-index: 1;
   background: #fafafa !important;
-  min-width: 120px;
+  min-width: 110px;
   text-align: left !important;
-  padding-left: 14px !important;
-  font-weight: 600;
-}
-
-.subject-col__name {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.subject-col__tag {
-  flex-shrink: 0;
-}
-
-.subject-col__count {
-  font-size: 11px;
-  font-weight: 400;
-  color: #909399;
-  margin-top: 2px;
-}
-
-/* 教师列表头 */
-.teacher-col {
-  min-width: 80px;
-  width: 80px;
-  line-height: 1.3;
+  padding-left: 12px !important;
 }
 
 .teacher-col__name {
   font-size: 13px;
+  font-weight: 600;
 }
 
 .teacher-col__group {
   font-size: 11px;
   font-weight: 400;
   color: #909399;
+}
+
+/* 课程列表头 */
+.subject-head-col {
+  min-width: 82px;
+  width: 82px;
+  line-height: 1.3;
+  vertical-align: bottom;
+}
+
+.subject-head__name {
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.subject-head__count {
+  font-size: 11px;
+  font-weight: 400;
+  color: #909399;
+  margin-top: 2px;
 }
 
 /* 勾选列 */
@@ -272,7 +263,7 @@ onMounted(loadData)
   font-size: 18px;
 }
 
-/* 操作列 */
+/* 操作列 (sticky right) */
 .action-col {
   position: sticky;
   right: 0;
@@ -303,9 +294,9 @@ onMounted(loadData)
 
   .qual-grid__table { min-width: 560px; }
 
-  .teacher-col { min-width: 72px; width: 72px; }
+  .subject-head-col { min-width: 72px; width: 72px; }
 
-  .subject-col { min-width: 100px; padding-left: 10px !important; }
+  .teacher-head-col { min-width: 96px; padding-left: 10px !important; }
 
   .action-col { min-width: 96px; width: 96px; }
 }
