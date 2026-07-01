@@ -42,7 +42,7 @@ def build_variables(model, problem: "ScheduleProblem") -> Variables:
     for demand in problem.demands:
         c, s = demand.class_id, demand.subject_id
         candidates = problem.candidate_teachers(c, s)
-        slots = problem.legal_slots(c)
+        slots = problem.legal_slots_for_subject(c, s)
 
         for t in candidates:
             assign[(c, s, t)] = model.NewBoolVar(f"assign_c{c}_s{s}_t{t}")
@@ -58,5 +58,12 @@ def build_variables(model, problem: "ScheduleProblem") -> Variables:
                 model.Add(b <= a)
                 model.Add(b <= pl)
                 model.Add(b >= a + pl - 1)
+
+    # 无教师锁定的强制置位：place[(c,s,d,p)] == 1，求解器必须为此片选教师
+    for (c, s), slots in problem.forced_slots.items():
+        for d, p in slots:
+            pl = place.get((c, s, d, p))
+            if pl is not None:
+                model.Add(pl == 1)
 
     return Variables(assign=assign, place=place, busy=busy)

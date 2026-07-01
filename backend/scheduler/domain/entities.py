@@ -99,6 +99,7 @@ class ScheduleProblem:
     teacher_locked_hours: dict[int, int] = field(default_factory=dict)  # 教师被用户锁定占用的节数
     teacher_locked_slots: dict[int, frozenset[Slot]] = field(default_factory=dict)  # 教师被用户锁定占用的具体时间片
     locked_entries: tuple["LockedEntry", ...] = ()  # 班会/校本/用户锁定预锁条目（落库用）
+    forced_slots: dict[tuple[int, int], frozenset[Slot]] = field(default_factory=dict)  # (c,s) → 必须占用的片（无教师锁），求解器选教师
 
     def qual(self, subject_id: int) -> frozenset[int]:
         return self.qualified_teachers.get(subject_id, frozenset())
@@ -117,4 +118,24 @@ class ScheduleProblem:
             (d, p)
             for (d, p) in self.calendar.all_slots()
             if not self.calendar.is_reserved(d, p) and (d, p) not in reserved
+        ]
+
+    def legal_slots_for_subject(self, class_id: int, subject_id: int) -> list[Slot]:
+        """与 legal_slots 相同，但额外排除被其他科目的 forced_slots 占用的片。
+
+        无教师的课表锁定（forced_slots）占用的片只对被锁定的科目开放，
+        其他科目不可使用——保证该片不会被冲突占用。
+        """
+        reserved = self.locks_by_class.get(class_id, frozenset())
+        # 收集该班其他科目的 forced slots
+        other_forced: set[Slot] = set()
+        for (c, s), slots in self.forced_slots.items():
+            if c == class_id and s != subject_id:
+                other_forced |= slots
+        return [
+            (d, p)
+            for (d, p) in self.calendar.all_slots()
+            if not self.calendar.is_reserved(d, p)
+            and (d, p) not in reserved
+            and (d, p) not in other_forced
         ]

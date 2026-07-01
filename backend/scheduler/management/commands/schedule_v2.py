@@ -109,6 +109,16 @@ class Command(BaseCommand):
             if got != d.hours_to_place:
                 issues.append(f"H1 周课时：{cname(d.class_id)}/{sname(d.subject_id)} 排 {got} 应 {d.hours_to_place}")
 
+        # 强制置位（无教师锁）：求解器必须把该课排到指定片
+        forced_placed = defaultdict(set)
+        for L in lessons:
+            forced_placed[(L.class_id, L.subject_id)].add((L.day, L.period))
+        for (c, s), slots in problem.forced_slots.items():
+            placed = forced_placed.get((c, s), set())
+            for slot in slots:
+                if slot not in placed:
+                    issues.append(f"强制置位：{cname(c)}/{sname(s)} 未排在 {slot}")
+
         # H2 班级互斥 / H8 单日 / 预占片
         class_slot: dict = defaultdict(int)
         cs_day: dict = defaultdict(int)

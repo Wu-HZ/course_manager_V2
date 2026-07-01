@@ -136,16 +136,22 @@ def load_problem(school) -> tuple[ScheduleProblem, list[str]]:
     teacher_locked_hours: dict[int, int] = defaultdict(int)
     teacher_locked_slots: dict[int, set] = defaultdict(set)
     user_lock_records: list[tuple[int, int, int | None, int, int]] = []
+    forced_slots_raw: dict[tuple[int, int], set] = defaultdict(set)
     for lock in ScheduleLock.objects.filter(school=school):
-        raw_locks[lock.school_class_id].add((lock.day, lock.period))
-        user_lock_counts[(lock.school_class_id, lock.subject_id)] += 1
         if lock.teacher_id:
+            # 有教师的锁：排除该片（教师已定）
+            raw_locks[lock.school_class_id].add((lock.day, lock.period))
+            user_lock_counts[(lock.school_class_id, lock.subject_id)] += 1
             teacher_locked_hours[lock.teacher_id] += 1
             teacher_locked_slots[lock.teacher_id].add((lock.day, lock.period))
+        else:
+            # 无教师的锁：不排除时间片，作为强制置位约束传给求解器
+            forced_slots_raw[(lock.school_class_id, lock.subject_id)].add((lock.day, lock.period))
         user_lock_records.append(
             (lock.school_class_id, lock.subject_id, lock.teacher_id, lock.day, lock.period)
         )
     locks_by_class = {cid: frozenset(slots) for cid, slots in raw_locks.items()}
+    forced_slots = {k: frozenset(v) for k, v in forced_slots_raw.items()}
 
     location_capacity = {
         loc.location_type: loc.capacity for loc in Location.objects.filter(school=school)
@@ -207,7 +213,8 @@ def load_problem(school) -> tuple[ScheduleProblem, list[str]]:
                 )
     for class_id, subject_id, teacher_id, day, period in user_lock_records:
         if teacher_id is None:
-            teacher_id = forced.get((class_id, subject_id))
+            # 无教师锁 → 由求解器处理（forced_slots），不生成 LockedEntry
+            continue
         locked_entries.append(LockedEntry(class_id, subject_id, teacher_id, day, period))
 
     problem = ScheduleProblem(
@@ -224,5 +231,6 @@ def load_problem(school) -> tuple[ScheduleProblem, list[str]]:
         teacher_locked_hours=dict(teacher_locked_hours),
         teacher_locked_slots={t: frozenset(slots) for t, slots in teacher_locked_slots.items()},
         locked_entries=tuple(locked_entries),
+        forced_slots=forced_slots,
     )
     return problem, errors
