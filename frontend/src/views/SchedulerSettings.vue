@@ -63,6 +63,13 @@
                       :placeholder="field.placeholder || ''"
                       clearable
                     />
+                    <el-input
+                      v-else-if="field.type === 'json'"
+                      v-model="form[field.key]"
+                      type="textarea"
+                      :rows="3"
+                      :placeholder="field.placeholder || ''"
+                    />
                     <div v-else-if="field.type === 'switch'" class="switch-control">
                       <el-switch v-model="form[field.key]" />
                       <span class="field-card__unit">{{ form[field.key] ? '已启用' : '已关闭' }}</span>
@@ -104,6 +111,13 @@
                 :placeholder="field.placeholder || ''"
                 clearable
               />
+              <el-input
+                v-else-if="field.type === 'json'"
+                v-model="form[field.key]"
+                type="textarea"
+                :rows="3"
+                :placeholder="field.placeholder || ''"
+              />
               <div v-else-if="field.type === 'switch'" class="switch-control">
                 <el-switch v-model="form[field.key]" />
                 <span class="field-card__unit">{{ form[field.key] ? '已启用' : '已关闭' }}</span>
@@ -139,16 +153,53 @@ const basicFields = [
     label: '班会课程名',
     type: 'text',
     help: '用于识别哪门课程应视为班会课。',
-    note: '匹配到的课程会固定锁定在周五第 4 节，由班主任承担，并且不进入教师资质和授课分配。请与课程名称完全一致，例如：班会、班队会、主题班会。',
+    note: '匹配到的课程会被固定锁定在班会时段，由班主任承担，并且不进入教师资质和授课分配。请与课程名称完全一致，例如：班会、班队会、主题班会。',
+  },
+  {
+    key: 'class_meeting_slot',
+    code: 'BASE-2',
+    label: '班会时段',
+    type: 'text',
+    help: '班会固定在哪个时间片（星期,节次），索引从 0 开始。',
+    note: '格式如 4,3 表示周五第 4 节。留空表示不设固定班会。',
+  },
+  {
+    key: 'periods_per_day',
+    code: 'BASE-3',
+    label: '每天节数',
+    type: 'json',
+    spanClass: 'field-card--span-2',
+    help: '定义一周中每天的节数，键为星期索引（0=周一），值为节数。',
+    note: 'JSON 格式，如 {"0":6,"1":6,"2":6,"3":6,"4":4} 表示周一~周四每天 6 节，周五 4 节。',
+  },
+  {
+    key: 'am_period_count',
+    code: 'BASE-4',
+    label: '上午节数',
+    type: 'number',
+    min: 1,
+    max: 10,
+    unit: '节',
+    help: '前几节算上午，影响教师禁排时段的 am/pm 划分和上午优先偏好。',
+    note: '默认 4，即节次 0-3 为上午、4 及之后为下午。',
+  },
+  {
+    key: 'day_labels',
+    code: 'BASE-5',
+    label: '每日标签',
+    type: 'json',
+    spanClass: 'field-card--span-2',
+    help: '每天的显示名称，在课表、页面上用于标识星期。',
+    note: 'JSON 数组格式，如 ["周一","周二","周三","周四","周五"]。元素数量须与每天节数的键数量一致。',
   },
   {
     key: 'combined_class_slots',
-    code: 'BASE-2',
+    code: 'BASE-6',
     label: '合班课时段',
     type: 'text',
     spanClass: 'field-card--span-2',
     help: '定义全校统一预留给校本课程/合班课的固定时段。',
-    note: '这些时间片会先锁给校本课程，普通课程不会排到这里；参与校本课程分组的教师在这些时段也会被占用。格式示例：1,4;1,5;3,4;3,5。星期从 0=周一开始，节次从 0 开始。',
+    note: '这些时间片会先锁给校本课程，普通课程不会排到这里。格式示例：1,4;1,5;3,4;3,5。星期从 0=周一开始，节次从 0 开始。',
   },
 ]
 
@@ -305,8 +356,24 @@ const overviewStats = [
 
 const loading = ref(false)
 const saving = ref(false)
+const jsonFields = ['periods_per_day', 'day_labels']
+
+const jsonToString = (v) => {
+  if (!v) return ''
+  return typeof v === 'string' ? v : JSON.stringify(v, null, 2)
+}
+
+const stringToJson = (s) => {
+  if (!s || !s.trim()) return null
+  try { return JSON.parse(s) } catch { return null }
+}
+
 const form = ref({
   class_meeting_name: '班会',
+  class_meeting_slot: '4,3',
+  periods_per_day: '{\n  "0": 6,\n  "1": 6,\n  "2": 6,\n  "3": 6,\n  "4": 4\n}',
+  am_period_count: 4,
+  day_labels: '[\n  "周一",\n  "周二",\n  "周三",\n  "周四",\n  "周五"\n]',
   combined_class_slots: '1,4;1,5;3,4;3,5',
   h9_consecutive_forbidden: '1,2;3,4',
   h11_teacher_class_daily_max: 2,
@@ -326,6 +393,12 @@ const loadSettings = async () => {
   loading.value = true
   try {
     const data = await api.get('/scheduler-settings/')
+    // 将 JSON 字段转为字符串以便表单编辑
+    for (const key of jsonFields) {
+      if (data[key] !== undefined) {
+        data[key] = jsonToString(data[key])
+      }
+    }
     form.value = data
   } catch (e) {
     ElMessage.error('加载设置失败')
@@ -337,7 +410,19 @@ const loadSettings = async () => {
 const handleSave = async () => {
   saving.value = true
   try {
-    await api.put('/scheduler-settings/update/', form.value)
+    const payload = { ...form.value }
+    // 将 JSON 字符串字段转回对象
+    for (const key of jsonFields) {
+      const val = stringToJson(payload[key])
+      if (val !== null) {
+        payload[key] = val
+      } else {
+        ElMessage.error(`字段 ${key} 的 JSON 格式不正确`)
+        saving.value = false
+        return
+      }
+    }
+    await api.put('/scheduler-settings/update/', payload)
     ElMessage.success('保存成功')
   } catch (e) {
     ElMessage.error('保存失败')
@@ -350,6 +435,11 @@ const handleReset = async () => {
   await ElMessageBox.confirm('确定恢复所有参数为默认值？', '提示', { type: 'warning' })
   try {
     const data = await api.post('/scheduler-settings/reset/')
+    for (const key of jsonFields) {
+      if (data[key] !== undefined) {
+        data[key] = jsonToString(data[key])
+      }
+    }
     form.value = data
     ElMessage.success('已恢复默认值')
   } catch (e) {
