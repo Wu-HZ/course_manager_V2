@@ -26,11 +26,12 @@
         </el-form-item>
         <el-form-item label="禁排日" required>
           <el-select v-model="form.day_off">
-            <el-option label="周一" :value="0" />
-            <el-option label="周二" :value="1" />
-            <el-option label="周三" :value="2" />
-            <el-option label="周四" :value="3" />
-            <el-option label="周五" :value="4" />
+            <el-option
+              v-for="d in schoolStore.dayOptions"
+              :key="d.value"
+              :label="d.label"
+              :value="d.value"
+            />
           </el-select>
         </el-form-item>
       </el-form>
@@ -46,6 +47,9 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getTravelGroups, createTravelGroup, updateTravelGroup, deleteTravelGroup } from '../api/resources'
+import { useSchoolStore } from '../stores/school'
+
+const schoolStore = useSchoolStore()
 
 const groups = ref([])
 const dialogVisible = ref(false)

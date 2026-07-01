@@ -279,3 +279,21 @@ def reset_scheduler_settings(request):
     settings = SchedulerSettings.get_settings(school)  # 创建默认值
     serializer = SchedulerSettingsSerializer(settings)
     return Response(serializer.data)
+
+
+@api_view(['GET'])
+def calendar_config(request):
+    """返回当前学校的日历配置，供前端统一消费。"""
+    school = get_request_school(request)
+    settings = SchedulerSettings.get_settings(school)
+    ppd = settings.get_periods_per_day()
+    day_count = len(ppd)
+    return Response({
+        'day_labels': settings.get_day_labels(),
+        'day_count': day_count,
+        'periods_per_day': ppd,
+        'am_period_count': settings.am_period_count,
+        'class_meeting_slot': settings.get_class_meeting_slot(),
+        'combined_slots': settings.get_combined_class_slots_list(),
+        'total_slots': sum(ppd.values()),
+    })

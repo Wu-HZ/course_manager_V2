@@ -118,8 +118,12 @@
             placeholder="留空自动分配"
             :disabled="form.exclude_from_combined"
           >
-            <el-option :value="1" label="周二" />
-            <el-option :value="3" label="周四" />
+            <el-option
+              v-for="d in schoolStore.dayOptions"
+              :key="d.value"
+              :value="d.value"
+              :label="d.label"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="不参与校本课程">
@@ -171,6 +175,9 @@ import MobileEntityList from '../components/MobileEntityList.vue'
 import { useResponsive } from '../composables/useResponsive'
 import { getTeachers, createTeacher, updateTeacher, deleteTeacher } from '../api/teachers'
 import api from '../api'
+import { useSchoolStore } from '../stores/school'
+
+const schoolStore = useSchoolStore()
 
 const teachers = ref([])
 const travelGroups = ref([])

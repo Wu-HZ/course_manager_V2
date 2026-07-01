@@ -113,25 +113,23 @@ const subjects = ref([])  // 所有课程（包含周课时信息）
 const selectedClassId = ref(null)
 const locks = ref([])
 const assignments = ref([])  // 该班级的所有授课分配
+import { useSchoolStore } from '../stores/school'
+const schoolStore = useSchoolStore()
+
 const selectedAssignmentId = ref(null)  // 当前选中的课程分配
 
-const days = [
-  { key: 'mon', label: '周一', index: 0 },
-  { key: 'tue', label: '周二', index: 1 },
-  { key: 'wed', label: '周三', index: 2 },
-  { key: 'thu', label: '周四', index: 3 },
-  { key: 'fri', label: '周五', index: 4 }
-]
+const days = computed(() =>
+  schoolStore.dayLabels.map((label, i) => ({ key: `d${i}`, label, index: i }))
+)
 
-const periodsPerDay = { 0: 6, 1: 6, 2: 6, 3: 6, 4: 4 }
-const maxPeriods = 6
+const periodsPerDay = computed(() => schoolStore.periodsPerDay)
+const maxPeriods = computed(() =>
+  Math.max(...Object.values(schoolStore.periodsPerDay), 6)
+)
 
 // 特殊时段
-const fridayClassMeeting = { day: 4, period: 3 }
-const combinedSlots = [
-  { day: 1, period: 4 }, { day: 1, period: 5 },
-  { day: 3, period: 4 }, { day: 3, period: 5 }
-]
+const classMeetingSlot = computed(() => schoolStore.calendarConfig?.class_meeting_slot)
+const combinedSlots = computed(() => schoolStore.calendarConfig?.combined_slots || [])
 
 // 只显示手动指定的分配
 const manualAssignments = computed(() => {
@@ -209,18 +207,20 @@ const getLock = (day, period) => {
 }
 
 const isSpecialSlot = (day, period) => {
-  if (day === fridayClassMeeting.day && period === fridayClassMeeting.period) return true
-  if (combinedSlots.some(s => s.day === day && s.period === period)) return true
-  if (period >= periodsPerDay[day]) return true
+  const cms = classMeetingSlot.value
+  if (cms && day === cms[0] && period === cms[1]) return true
+  if (combinedSlots.value.some(s => s[0] === day && s[1] === period)) return true
+  if (period >= (periodsPerDay.value[day] ?? 0)) return true
   return false
 }
 
-const isDisabled = (day, period) => period >= periodsPerDay[day]
+const isDisabled = (day, period) => period >= (periodsPerDay.value[day] ?? 0)
 
 const getSpecialLabel = (day, period) => {
-  if (day === fridayClassMeeting.day && period === fridayClassMeeting.period) return '班会'
-  if (combinedSlots.some(s => s.day === day && s.period === period)) return '校本课程'
-  if (period >= periodsPerDay[day]) return '—'
+  const cms = classMeetingSlot.value
+  if (cms && day === cms[0] && period === cms[1]) return '班会'
+  if (combinedSlots.value.some(s => s[0] === day && s[1] === period)) return '校本课程'
+  if (period >= (periodsPerDay.value[day] ?? 0)) return '—'
   return ''
 }
 

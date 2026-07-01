@@ -226,6 +226,7 @@ import { getTeachers } from '../api/teachers'
 import { getTravelGroups, getAssignments } from '../api/resources'
 import { getSubjects } from '../api/subjects'
 import { buildScheduleResultFileLabel } from '../utils/scheduleResults'
+import { useSchoolStore } from '../stores/school'
 
 use([CanvasRenderer, BarChart, GridComponent, TooltipComponent, LegendComponent])
 
@@ -582,10 +583,15 @@ const loadAllTimetables = async () => {
 
 const exportToExcel = () => {
   const wb = XLSX.utils.book_new()
-  const dayLabels = ['周一', '周二', '周三', '周四', '周五']
-  const periodsPerDay = { 0: 6, 1: 6, 2: 6, 3: 6, 4: 4 }
-  const maxPeriods = 6
-  const header = ['', '第1节', '第2节', '第3节', '第4节', '第5节', '第6节']
+  const schoolStore = useSchoolStore()
+  const dayLabels = schoolStore.dayLabels
+  const periodsPerDay = schoolStore.periodsPerDay
+  const maxPeriods = Math.max(...Object.values(periodsPerDay), 6)
+  const dayCount = schoolStore.dayCount
+  const header = ['']
+  for (let p = 1; p <= maxPeriods; p++) {
+    header.push(`第${p}节`)
+  }
 
   for (const item of allTimetables.value) {
     const entryMap = {}
@@ -594,8 +600,8 @@ const exportToExcel = () => {
     }
 
     const rows = [header]
-    for (let day = 0; day < 5; day++) {
-      const row = [dayLabels[day]]
+    for (let day = 0; day < dayCount; day++) {
+      const row = [dayLabels[day] || `第${day + 1}天`]
       for (let period = 0; period < maxPeriods; period++) {
         const entry = entryMap[`${day}-${period}`]
         if (entry) {
@@ -604,7 +610,7 @@ const exportToExcel = () => {
             ? (entry.teacher_name || '')
             : (entry.school_class_name || '')
           row.push(line2 ? `${line1}\n${line2}` : line1)
-        } else if (period >= periodsPerDay[day]) {
+        } else if (period >= (periodsPerDay[day] ?? 0)) {
           row.push('-')
         } else {
           row.push('')

@@ -31,10 +31,7 @@ from .domain import (
     TeacherInfo,
 )
 from .time_slots import (
-    AM_PERIODS,
     CONSECUTIVE_FORBIDDEN_PAIRS,
-    FRIDAY_CLASS_MEETING,
-    PERIODS_PER_DAY,
 )
 
 
@@ -54,12 +51,13 @@ def _parse_pairs(raw, fallback):
 
 
 def build_calendar(settings: SchedulerSettings) -> Calendar:
-    """把旧 ``time_slots`` 常量 + settings 收敛成一个 :class:`Calendar`。"""
-    periods = tuple(PERIODS_PER_DAY[d] for d in sorted(PERIODS_PER_DAY))
+    """从 SchedulerSettings 读取所有时间结构参数，构造 Calendar。"""
+    ppd = settings.get_periods_per_day()
+    periods = tuple(ppd[d] for d in sorted(ppd))
     return Calendar(
         periods_per_day=periods,
-        am_periods=AM_PERIODS,
-        class_meeting_slot=FRIDAY_CLASS_MEETING,
+        am_periods=settings.am_period_count,
+        class_meeting_slot=settings.get_class_meeting_slot(),
         combined_slots=frozenset(settings.get_combined_class_slots_list()),
         consecutive_forbidden_pairs=_parse_pairs(
             settings.h9_consecutive_forbidden, CONSECUTIVE_FORBIDDEN_PAIRS

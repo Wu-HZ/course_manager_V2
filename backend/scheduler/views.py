@@ -19,7 +19,6 @@ from .serializers import (
     ScheduleResultUpdateSerializer, ScheduleEntrySerializer
 )
 from .service import run as run_schedule_engine
-from .time_slots import TOTAL_SLOTS
 
 
 class ScheduleResultPagination(PageNumberPagination):
@@ -253,7 +252,8 @@ def _build_precheck_payload(school):
 
     # 总量供需下界
     normal_subject_hours = sum(subject.weekly_hours for _, subject in applicable_pairs)
-    per_teacher_max = max(TOTAL_SLOTS - 1, 1)
+    total_slots = sum(settings.get_periods_per_day().values())
+    per_teacher_max = max(total_slots - 1, 1)
     estimated_min_teachers = (
         math.ceil(normal_subject_hours / per_teacher_max) if normal_subject_hours else 0
     )

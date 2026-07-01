@@ -68,11 +68,12 @@
         </el-form-item>
         <el-form-item label="星期" required>
           <el-select v-model="form.day">
-            <el-option label="周一" :value="0" />
-            <el-option label="周二" :value="1" />
-            <el-option label="周三" :value="2" />
-            <el-option label="周四" :value="3" />
-            <el-option label="周五" :value="4" />
+            <el-option
+              v-for="d in schoolStore.dayOptions"
+              :key="d.value"
+              :label="d.label"
+              :value="d.value"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="时段" required>
@@ -100,6 +101,9 @@ import MobileEntityList from '../components/MobileEntityList.vue'
 import { useResponsive } from '../composables/useResponsive'
 import { getBlockedTimes, createBlockedTime, updateBlockedTime, deleteBlockedTime } from '../api/resources'
 import { getTeachers } from '../api/teachers'
+import { useSchoolStore } from '../stores/school'
+
+const schoolStore = useSchoolStore()
 
 const blockedTimes = ref([])
 const teachers = ref([])

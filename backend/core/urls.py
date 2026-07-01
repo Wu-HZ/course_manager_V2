@@ -28,6 +28,7 @@ urlpatterns = [
     path('scheduler-settings/', views.get_scheduler_settings),
     path('scheduler-settings/update/', views.update_scheduler_settings),
     path('scheduler-settings/reset/', views.reset_scheduler_settings),
+    path('calendar-config/', views.calendar_config),
     path('data/export/', export_data),
     path('data/import/', import_data),
     # router.urls 放在最后

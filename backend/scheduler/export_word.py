@@ -18,9 +18,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from core.models import SchoolClass, Subject, Teacher, TravelGroup, SchedulerSettings
-from core.school_utils import get_request_school
 from .models import ScheduleEntry, ScheduleResult
-from .time_slots import DAYS
 
 # 模板路径 — 相对 backend/ 运行目录
 TEMPLATE_PATH = Path(__file__).resolve().parent.parent / 'assets' / '个人课程表模版.docx'
@@ -403,7 +401,7 @@ class _FakeEntry:
 
 # ── 表格填充 & 页面克隆 ──────────────────────────────────────────
 
-def _fill_table(tbl_element, cell_data):
+def _fill_table(tbl_element, cell_data, day_count=5, max_periods=6):
     """用已算好的 cell_data 填充一个表格的课程格
 
     cell_data: [(day, period, line1, line2), ...]
@@ -411,12 +409,12 @@ def _fill_table(tbl_element, cell_data):
     cells = _get_table_cells(tbl_element)
     data_map = {(d, p): (l1, l2) for d, p, l1, l2 in cell_data}
 
-    for day in range(5):
+    for day in range(day_count):
         row_idx = DATA_ROW_OFFSET + day
         if row_idx >= len(cells):
             continue
 
-        for period in range(6):
+        for period in range(max_periods):
             col_idx = PERIOD_COLUMN.get(period)
             if col_idx is None or col_idx >= len(cells[row_idx]):
                 continue
@@ -476,12 +474,17 @@ def _build_single_docx_bytes(result_id, view_type, targets, school, school_name,
     # 组装 (target, cell_data) 列表
     page_items = [(t, cell_data_maps.get(t.id, [])) for t in targets]
 
+    settings = SchedulerSettings.get_settings(school)
+    ppd = settings.get_periods_per_day()
+    day_count = len(ppd)
+    max_periods = max(ppd.values()) if ppd else 6
+
     return _generate_docx_from_pages(page_items, school_name, semester,
-                                     footer_text, date_text)
+                                     footer_text, date_text, day_count, max_periods)
 
 
 def _generate_docx_from_pages(page_items, school_name, semester,
-                              footer_text, date_text):
+                              footer_text, date_text, day_count=5, max_periods=6):
     """用模板生成一份多页 docx，每页一个 target 的课表。返回 bytes。"""
 
     doc = Document(str(TEMPLATE_PATH))
@@ -513,7 +516,7 @@ def _generate_docx_from_pages(page_items, school_name, semester,
     # 填充第一页
     first_target, first_data = page_items[0]
     _set_subtitle_text(subtitle_el, f'{school_name}  {semester}', first_target.name)
-    _fill_table(table_el, first_data)
+    _fill_table(table_el, first_data, day_count, max_periods)
     _set_footer_center(footer_el, footer_text)
     _set_footer_center(date_el, date_text)
 
@@ -527,7 +530,7 @@ def _generate_docx_from_pages(page_items, school_name, semester,
         cl_footer, cl_date = cloned[-2], cloned[-1]
 
         _set_subtitle_text(cl_subtitle, f'{school_name}  {semester}', target.name)
-        _fill_table(cl_table, data)
+        _fill_table(cl_table, data, day_count, max_periods)
         _set_footer_center(cl_footer, footer_text)
         _set_footer_center(cl_date, date_text)
 
@@ -799,6 +802,10 @@ def export_word(request):
         return Response({'error': '排课结果不存在'}, status=status.HTTP_404_NOT_FOUND)
 
     school = result.school
+    settings = SchedulerSettings.get_settings(school)
+    cal_ppd = settings.get_periods_per_day()
+    cal_day_count = len(cal_ppd)
+    cal_max_periods = max(cal_ppd.values()) if cal_ppd else 6
     merge = request.data.get('merge', False)
     timetable_types = [vt for vt in view_types if vt in ('class', 'teacher')]
     has_groups = 'groups' in view_types
@@ -855,7 +862,7 @@ def export_word(request):
             # 填充第一页
             first_target, first_data = page_items[0]
             _set_subtitle_text(subtitle_el, f'{school_name}  {semester}', first_target.name)
-            _fill_table(table_el, first_data)
+            _fill_table(table_el, first_data, cal_day_count, cal_max_periods)
             _set_footer_center(footer_el_xml, footer_text)
             _set_footer_center(date_el_xml, date_text)
 
@@ -869,7 +876,7 @@ def export_word(request):
                 cl_footer, cl_date = cloned[-2], cloned[-1]
 
                 _set_subtitle_text(cl_subtitle, f'{school_name}  {semester}', target.name)
-                _fill_table(cl_table, data)
+                _fill_table(cl_table, data, cal_day_count, cal_max_periods)
                 _set_footer_center(cl_footer, footer_text)
                 _set_footer_center(cl_date, date_text)
 

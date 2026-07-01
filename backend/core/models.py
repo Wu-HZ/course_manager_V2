@@ -10,6 +10,8 @@ DAY_CHOICES = [
     (2, '周三'),
     (3, '周四'),
     (4, '周五'),
+    (5, '周六'),
+    (6, '周日'),
 ]
 
 LOCATION_TYPES = [
@@ -177,8 +179,13 @@ class CombinedClassGroup(ImportKeyModel):
 class Teacher(ImportKeyModel):
     """教师"""
     COMBINED_DAY_CHOICES = [
+        (0, '周一'),
         (1, '周二'),
+        (2, '周三'),
         (3, '周四'),
+        (4, '周五'),
+        (5, '周六'),
+        (6, '周日'),
     ]
 
     school = models.ForeignKey(
@@ -357,10 +364,26 @@ class SchedulerSettings(models.Model):
         related_name='scheduler_settings',
     )
 
-    # 基础配置
+    # 基础配置 — 时间结构
     class_meeting_name = models.CharField(
         '班会课程名', max_length=50, default='班会',
         help_text='班会课的课程名称，如"班会"、"班队会"、"主题班会"等'
+    )
+    class_meeting_slot = models.CharField(
+        '班会时段', max_length=20, default='4,3',
+        help_text='班会固定在哪个时段，格式"星期,节次"从0开始。如"4,3"表示周五第4节。留空表示没有固定班会。'
+    )
+    periods_per_day = models.JSONField(
+        '每天节数', default=dict,
+        help_text='每天几节课，JSON如{"0":6,"1":6,"2":6,"3":6,"4":4}，键为星期索引0起始'
+    )
+    am_period_count = models.IntegerField(
+        '上午节数', default=4,
+        help_text='前几节算上午。默认4表示节次0-3为上午、4及以后为下午。'
+    )
+    day_labels = models.JSONField(
+        '每日标签', default=list,
+        help_text='每天的显示名称，JSON数组如["周一","周二","周三","周四","周五"]'
     )
     combined_class_slots = models.CharField(
         '合班课时段', max_length=100, default='1,4;1,5;3,4;3,5',
@@ -453,6 +476,37 @@ class SchedulerSettings(models.Model):
             # 解析失败，返回默认值
             slots = [(1, 4), (1, 5), (3, 4), (3, 5)]
         return slots
+
+    def get_class_meeting_slot(self):
+        """解析班会时段，返回 (day, period) 或 None。"""
+        val = (self.class_meeting_slot or '').strip()
+        if not val:
+            return None
+        try:
+            parts = val.split(',')
+            if len(parts) == 2:
+                return (int(parts[0].strip()), int(parts[1].strip()))
+        except (ValueError, AttributeError):
+            pass
+        return (4, 3)
+
+    def get_periods_per_day(self):
+        """返回每天节数 dict，key 为 int。默认周一~周四6节、周五4节。"""
+        raw = self.periods_per_day or {}
+        if raw and all(isinstance(k, int) or k.isdigit() for k in raw.keys()):
+            return {int(k): int(v) for k, v in raw.items()}
+        return {0: 6, 1: 6, 2: 6, 3: 6, 4: 4}
+
+    def get_day_labels(self):
+        """返回每日标签列表，默认周一~周五。"""
+        labels = self.day_labels or []
+        if labels and isinstance(labels, list) and len(labels) > 0:
+            return [str(l) for l in labels]
+        return ['周一', '周二', '周三', '周四', '周五']
+
+    def get_day_count(self):
+        """返回一周几天。"""
+        return len(self.get_periods_per_day()) or len(self.get_day_labels()) or 5
 
 
 def get_qualification_subject_queryset(school):

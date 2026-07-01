@@ -39,16 +39,17 @@ const props = defineProps({
   showClass: { type: Boolean, default: false }
 })
 
-const days = [
-  { key: 'mon', label: '周一', index: 0 },
-  { key: 'tue', label: '周二', index: 1 },
-  { key: 'wed', label: '周三', index: 2 },
-  { key: 'thu', label: '周四', index: 3 },
-  { key: 'fri', label: '周五', index: 4 }
-]
+import { useSchoolStore } from '../stores/school'
+const schoolStore = useSchoolStore()
 
-const periodsPerDay = { 0: 6, 1: 6, 2: 6, 3: 6, 4: 4 }
-const maxPeriods = 6
+const days = computed(() =>
+  schoolStore.dayLabels.map((label, i) => ({ key: `d${i}`, label, index: i }))
+)
+
+const periodsPerDay = computed(() => schoolStore.periodsPerDay)
+const maxPeriods = computed(() =>
+  Math.max(...Object.values(schoolStore.periodsPerDay), 6)
+)
 
 const entryMap = computed(() => {
   const map = {}
@@ -60,7 +61,7 @@ const entryMap = computed(() => {
 
 const getEntry = (day, period) => entryMap.value[`${day}-${period}`]
 
-const isDisabled = (day, period) => period >= periodsPerDay[day]
+const isDisabled = (day, period) => period >= (periodsPerDay.value[day] ?? 0)
 
 const getCellClass = (day, period) => {
   const entry = getEntry(day, period)

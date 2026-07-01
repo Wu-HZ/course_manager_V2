@@ -77,11 +77,13 @@ import * as XLSX from 'xlsx'
 import { getTeacherTimetable, getActiveSchedule, getScheduleResult } from '../api/scheduler'
 import { getTeachers } from '../api/teachers'
 import { getTravelGroups } from '../api/resources'
+import { useSchoolStore } from '../stores/school'
 import ScheduleResultPicker from '../components/ScheduleResultPicker.vue'
 
-const DAY_LABELS = ['周一', '周二', '周三', '周四', '周五']
+const schoolStore = useSchoolStore()
+const DAY_LABELS = computed(() => schoolStore.dayLabels)
 const WEEKS = [1, 2, 3, 4]
-const PERIODS_PER_DAY = { 0: 6, 1: 6, 2: 6, 3: 6, 4: 4 }
+const PERIODS_PER_DAY = computed(() => schoolStore.periodsPerDay)
 const REQUIRED_COUNT = 6
 
 const teachers = ref([])
@@ -210,7 +212,7 @@ const generate = async () => {
       const freeSlots = []
       for (let day = 0; day < 5; day++) {
         if (day === dayOff) continue  // skip travel group day off
-        for (let period = 0; period < PERIODS_PER_DAY[day]; period++) {
+        for (let period = 0; period < (PERIODS_PER_DAY.value[day] ?? 0); period++) {
           const key = `${day}-${period}`
           if (!teachingSlots[tt.teacherId].has(key)) {
             freeSlots.push({ day, period, key })
@@ -232,7 +234,7 @@ const generate = async () => {
               week,
               day: slot.day,
               period: slot.period,
-              dayLabel: DAY_LABELS[slot.day],
+              dayLabel: DAY_LABELS.value[slot.day],
               periodLabel: `第${slot.period + 1}节`,
               targetId: target.teacherId,
               targetName: target.teacherName,
