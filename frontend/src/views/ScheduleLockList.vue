@@ -24,12 +24,12 @@
       </div>
     </div>
 
-    <el-alert v-if="selectedClassId && manualAssignments.length === 0" type="warning" :closable="false" style="margin-bottom: 20px">
-      该班级没有手动指定的授课分配，请先在"授课分配"页面进行手动指定。
+    <el-alert v-if="selectedClassId && courseOptions.length === 0" type="warning" :closable="false" style="margin-bottom: 20px">
+      该班级没有可锁定的课程，请先在"课程管理"中确认有适用于该班级年级的课程。
     </el-alert>
 
     <el-alert v-else-if="selectedClassId" type="info" :closable="false" style="margin-bottom: 20px">
-      操作说明：先在下方选中课程，再点击课表单元格填入。点击已锁定单元格可删除。
+      操作说明：先在下方选中课程，再点击课表单元格填入。teacher 为可选，不选则由排课时自动分配。点击已锁定单元格可删除。
     </el-alert>
 
     <div v-if="selectedClassId" class="lock-grid">
@@ -56,7 +56,9 @@
                 <template v-else-if="getLock(day.index, period - 1)">
                   <div class="cell-content">
                     <div class="subject">{{ getLock(day.index, period - 1).subject_name }}</div>
-                    <div class="teacher">{{ getLock(day.index, period - 1).teacher_name }}</div>
+                    <div class="teacher">
+                      {{ getLock(day.index, period - 1).teacher_name || '（教师待定）' }}
+                    </div>
                   </div>
                 </template>
                 <template v-else>
@@ -70,31 +72,36 @@
     </div>
 
     <!-- 可用课程列表 -->
-    <div v-if="selectedClassId && manualAssignments.length > 0" class="course-panel">
+    <div v-if="selectedClassId && courseOptions.length > 0" class="course-panel">
       <div class="panel-header">
         <span>可用课程</span>
-        <span v-if="selectedAssignment" class="selected-hint">
-          已选中: {{ selectedAssignment.subject_name }} - {{ selectedAssignment.teacher_name }}
+        <span v-if="selectedCourseOption" class="selected-hint">
+          已选中: {{ selectedCourseOption.subject_name }}
+          <template v-if="selectedCourseOption.teacher_name"> - {{ selectedCourseOption.teacher_name }}</template>
+          <template v-else>（教师待定）</template>
         </span>
       </div>
       <div class="course-list">
         <div
-          v-for="a in manualAssignments"
-          :key="a.id"
+          v-for="co in courseOptions"
+          :key="co.key"
           class="course-item"
           :class="{
-            'selected': selectedAssignmentId === a.id,
-            'disabled': isSubjectFull(a)
+            'selected': selectedCourseKey === co.key,
+            'disabled': isSubjectFull(co)
           }"
-          @click="selectAssignment(a)"
+          @click="selectCourse(co)"
         >
           <div class="course-info">
-            <span class="course-name">{{ a.subject_name }}</span>
-            <span class="course-teacher">{{ a.teacher_name }}</span>
+            <span class="course-name">{{ co.subject_name }}</span>
+            <span class="course-teacher">
+              <template v-if="co.teacher_name">{{ co.teacher_name }}</template>
+              <template v-else>（教师待定）</template>
+            </span>
           </div>
           <div class="course-status">
-            <span :class="{ 'full': isSubjectFull(a) }">
-              {{ getLockedCount(a.subject) }}/{{ getSubjectWeeklyHours(a.subject) }}
+            <span :class="{ 'full': isSubjectFull(co) }">
+              {{ getLockedCount(co.subject_id) }}/{{ co.weekly_hours }}
             </span>
           </div>
         </div>
@@ -116,7 +123,7 @@ const assignments = ref([])  // 该班级的所有授课分配
 import { useSchoolStore } from '../stores/school'
 const schoolStore = useSchoolStore()
 
-const selectedAssignmentId = ref(null)  // 当前选中的课程分配
+const selectedCourseKey = ref(null)  // 当前选中的课程 key，格式 "sid" 或 "sid_tid"
 
 const days = computed(() =>
   schoolStore.dayLabels.map((label, i) => ({ key: `d${i}`, label, index: i }))
@@ -131,9 +138,42 @@ const maxPeriods = computed(() =>
 const classMeetingSlot = computed(() => schoolStore.calendarConfig?.class_meeting_slot)
 const combinedSlots = computed(() => schoolStore.calendarConfig?.combined_slots || [])
 
-// 只显示手动指定的分配
-const manualAssignments = computed(() => {
-  return assignments.value.filter(a => a.is_manual)
+// 构建可锁定课程列表：该班级所有适用的普通课程，有手动分配教师则附加教师信息
+const courseOptions = computed(() => {
+  if (!selectedClassId.value) return []
+  const cls = classes.value.find(c => c.id === selectedClassId.value)
+  if (!cls) return []
+
+  // 构建手动分配的 subject_id -> teacher 映射
+  const manualMap = {}
+  for (const a of assignments.value) {
+    if (a.school_class === selectedClassId.value && a.is_manual) {
+      manualMap[a.subject] = { id: a.id, teacher_id: a.teacher, teacher_name: a.teacher_name }
+    }
+  }
+
+  const options = []
+  for (const s of subjects.value) {
+    // 跳过合班课和班会
+    if (s.is_combined_class) continue
+    // 跳过不适用年级的课程
+    const grades = getApplicableGrades(s)
+    if (grades.length > 0 && !grades.includes(cls.grade)) continue
+    // 跳过已有关联教师身份的班会名课程
+    if (s.name === classMeetingName.value) continue
+
+    const manual = manualMap[s.id]
+    const key = manual ? `${s.id}_${manual.teacher_id}` : `${s.id}`
+    options.push({
+      key,
+      subject_id: s.id,
+      subject_name: s.name,
+      teacher_id: manual ? manual.teacher_id : null,
+      teacher_name: manual ? manual.teacher_name : null,
+      weekly_hours: s.weekly_hours,
+    })
+  }
+  return options
 })
 
 // 统计每门课程已锁定的节数
@@ -145,34 +185,31 @@ const lockedCountBySubject = computed(() => {
   return count
 })
 
-// 获取课程的周课时
-const getSubjectWeeklyHours = (subjectId) => {
-  const s = subjects.value.find(s => s.id === subjectId)
-  return s ? s.weekly_hours : 0
-}
-
 // 获取已锁定节数
 const getLockedCount = (subjectId) => {
   return lockedCountBySubject.value[subjectId] || 0
 }
 
 // 检查课程是否已达锁定上限
-const isSubjectFull = (assignment) => {
-  const weeklyHours = getSubjectWeeklyHours(assignment.subject)
-  const locked = getLockedCount(assignment.subject)
-  return locked >= weeklyHours
+const isSubjectFull = (co) => {
+  const locked = getLockedCount(co.subject_id)
+  return locked >= co.weekly_hours
 }
 
-// 当前选中的分配
-const selectedAssignment = computed(() => {
-  return assignments.value.find(a => a.id === selectedAssignmentId.value)
+// 当前选中的课程选项
+const selectedCourseOption = computed(() => {
+  return courseOptions.value.find(co => co.key === selectedCourseKey.value)
 })
 
 const loadBase = async () => {
-  [classes.value, subjects.value] = await Promise.all([
+  const [classList, subjectList, settings] = await Promise.all([
     api.get('/classes/'),
-    api.get('/subjects/')
+    api.get('/subjects/'),
+    api.get('/scheduler-settings/'),
   ])
+  classes.value = classList
+  subjects.value = subjectList
+  classMeetingName.value = settings.class_meeting_name || '班会'
   // 默认选中第一个班级
   if (classes.value.length > 0) {
     selectClass(classes.value[0].id)
@@ -181,7 +218,7 @@ const loadBase = async () => {
 
 const selectClass = async (classId) => {
   selectedClassId.value = classId
-  selectedAssignmentId.value = null
+  selectedCourseKey.value = null
   await Promise.all([loadLocks(), loadAssignments()])
 }
 
@@ -232,13 +269,24 @@ const getCellClass = (day, period) => {
   return 'pm'
 }
 
+const getApplicableGrades = (subject) => {
+  if (!subject?.applicable_grades) return []
+  return String(subject.applicable_grades)
+    .split(',')
+    .map(item => Number(item.trim()))
+    .filter(Number.isInteger)
+}
+
+// 班会名
+const classMeetingName = ref('班会')
+
 // 选中课程
-const selectAssignment = (assignment) => {
-  if (isSubjectFull(assignment)) {
-    ElMessage.warning(`${assignment.subject_name} 已达到周课时上限`)
+const selectCourse = (co) => {
+  if (isSubjectFull(co)) {
+    ElMessage.warning(`${co.subject_name} 已达到周课时上限`)
     return
   }
-  selectedAssignmentId.value = assignment.id
+  selectedCourseKey.value = co.key
 }
 
 // 点击单元格
@@ -269,33 +317,36 @@ const handleCellClick = async (day, period) => {
     }
   } else {
     // 空单元格，填入选中的课程
-    if (!selectedAssignmentId.value) {
+    if (!selectedCourseKey.value) {
       ElMessage.warning('请先在下方选择一个课程')
       return
     }
 
-    const assignment = selectedAssignment.value
-    if (!assignment) return
+    const co = selectedCourseOption.value
+    if (!co) return
 
     // 检查是否超过周课时限制
-    if (isSubjectFull(assignment)) {
-      ElMessage.error(`${assignment.subject_name} 已达到周课时上限`)
+    if (isSubjectFull(co)) {
+      ElMessage.error(`${co.subject_name} 已达到周课时上限`)
       return
     }
 
     try {
-      await api.post('/schedule-locks/set/', {
+      const payload = {
         school_class: selectedClassId.value,
         day: day,
         period: period,
-        subject: assignment.subject,
-        teacher: assignment.teacher,
-      })
+        subject: co.subject_id,
+      }
+      if (co.teacher_id) {
+        payload.teacher = co.teacher_id
+      }
+      await api.post('/schedule-locks/set/', payload)
       ElMessage.success('锁定成功')
       await loadLocks()
       // 如果当前选中的课程已满，清除选中状态
-      if (selectedAssignment.value && isSubjectFull(selectedAssignment.value)) {
-        selectedAssignmentId.value = null
+      if (selectedCourseOption.value && isSubjectFull(selectedCourseOption.value)) {
+        selectedCourseKey.value = null
       }
     } catch (e) {
       ElMessage.error('操作失败')
