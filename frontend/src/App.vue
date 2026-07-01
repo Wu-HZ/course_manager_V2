@@ -74,6 +74,7 @@ const desktopNavOpen = ref(true)
 
 const routeTitleMap = {
   '/': '首页概览',
+  '/schools': '学校管理',
   '/teachers': '教师管理',
   '/classes': '班级管理',
   '/subjects': '课程管理',

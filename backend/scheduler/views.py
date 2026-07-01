@@ -12,6 +12,7 @@ from core.models import (
     SchoolClass, Subject, Teacher, TeacherBlockedTime, TeacherQualification,
     TravelGroup
 )
+from core.school_utils import get_request_school
 from .models import ScheduleResult, ScheduleEntry
 from .serializers import (
     ScheduleResultSerializer, ScheduleResultListSerializer,
@@ -27,22 +28,23 @@ class ScheduleResultPagination(PageNumberPagination):
     max_page_size = 200
 
 
+def _school(view):
+    """从 view 中提取 school 的辅助函数，供 ViewSet mixin 使用。"""
+    return get_request_school(view.request)
+
+
 @api_view(['POST'])
 def run_schedule(request):
-    """触发排课（联合 CP-SAT 引擎，确定性求解）。
+    """触发排课（联合 CP-SAT 引擎，确定性求解）。"""
+    school = get_request_school(request)
 
-    响应契约与旧引擎保持一致，前端零改动。``max_attempts`` /
-    ``total_timeout_seconds`` 是旧引擎的随机重试参数，新引擎确定性求解、不重试，
-    接受但忽略。无解时 ``diagnostics`` 返回求解器证明的最小冲突集（unsat core）。
-    """
-    # 新引擎有解时秒级返回；time_limit 是"无解时放弃求解、转为诊断"的上限。
     time_limit = int(request.data.get('time_limit_seconds', 60) or 60)
     num_workers = int(request.data.get('num_workers', 8) or 8)
-    # gap=0 合法(求精确最优)，不能用 `or` 兜底，否则 0 会被错当成未传。
     gap_raw = request.data.get('relative_gap')
     gap_percent = float(gap_raw) if gap_raw is not None else 8.0
 
     out = run_schedule_engine(
+        school=school,
         time_limit_seconds=time_limit,
         num_workers=num_workers,
         relative_gap_limit=gap_percent / 100.0,
@@ -106,25 +108,29 @@ def _make_step(key, title, description, status_value, detail, actions):
     }
 
 
-def _build_precheck_payload():
-    settings = SchedulerSettings.get_settings()
+def _build_precheck_payload(school):
+    settings = SchedulerSettings.get_settings(school)
     class_meeting_name = settings.class_meeting_name
 
-    teachers = list(Teacher.objects.all())
-    classes = list(SchoolClass.objects.all())
-    subjects = list(Subject.objects.all())
-    locations = list(Location.objects.all())
-    travel_groups = list(TravelGroup.objects.all())
-    combined_groups = list(CombinedClassGroup.objects.all())
+    teachers = list(Teacher.objects.filter(school=school))
+    classes = list(SchoolClass.objects.filter(school=school))
+    subjects = list(Subject.objects.filter(school=school))
+    locations = list(Location.objects.filter(school=school))
+    travel_groups = list(TravelGroup.objects.filter(school=school))
+    combined_groups = list(CombinedClassGroup.objects.filter(school=school))
     assignments = list(
-        ClassSubjectTeacher.objects.select_related('school_class', 'subject', 'teacher').all()
+        ClassSubjectTeacher.objects.filter(school=school).select_related(
+            'school_class', 'subject', 'teacher'
+        )
     )
-    qualifications = list(TeacherQualification.objects.all())
-    locks = list(ScheduleLock.objects.select_related('school_class', 'subject').all())
+    qualifications = list(TeacherQualification.objects.filter(school=school))
+    locks = list(ScheduleLock.objects.filter(school=school).select_related(
+        'school_class', 'subject'
+    ))
 
-    blocked_times_count = TeacherBlockedTime.objects.count()
+    blocked_times_count = TeacherBlockedTime.objects.filter(school=school).count()
     successful_results_count = ScheduleResult.objects.filter(
-        solve_status__in=['OPTIMAL', 'FEASIBLE']
+        school=school, solve_status__in=['OPTIMAL', 'FEASIBLE']
     ).count()
 
     subject_by_id = {subject.id: subject for subject in subjects}
@@ -222,7 +228,7 @@ def _build_precheck_payload():
                 'weekly_hours': subject.weekly_hours,
             })
 
-    # 教师授课容量分析：合格教师数 × 每人最多带班数 是否覆盖适用班级数
+    # 教师授课容量分析
     subject_demand = Counter()
     for school_class, subject in applicable_pairs:
         subject_demand[subject.id] += 1
@@ -231,7 +237,6 @@ def _build_precheck_payload():
     for subject in required_subjects:
         demand = subject_demand.get(subject.id, 0)
         qualified_count = len(qualification_map.get(subject.id, set()))
-        # qualified_count == 0 已由 subjects_without_qualification 单独处理，这里跳过避免重复
         if demand == 0 or qualified_count == 0:
             continue
         max_classes = max(subject.max_teacher_classes, 1)
@@ -246,9 +251,9 @@ def _build_precheck_payload():
                 'needed': math.ceil((demand - capacity) / max_classes),
             })
 
-    # 总量供需下界：全校普通课程课时 vs 教师可授时段
+    # 总量供需下界
     normal_subject_hours = sum(subject.weekly_hours for _, subject in applicable_pairs)
-    per_teacher_max = max(TOTAL_SLOTS - 1, 1)  # 去掉周五班会那节后，单个教师每周可授时段上界
+    per_teacher_max = max(TOTAL_SLOTS - 1, 1)
     estimated_min_teachers = (
         math.ceil(normal_subject_hours / per_teacher_max) if normal_subject_hours else 0
     )
@@ -301,7 +306,7 @@ def _build_precheck_payload():
         blocking_issues.append(_make_issue(
             'missing_combined_groups',
             '校本课程分组不足 4 组',
-            f'当前校本课程使用“{combined_subject.name}”，但校本课程分组只有 {len(combined_groups)} 组。按当前实现至少需要 4 组。',
+            f'当前校本课程使用"{combined_subject.name}"，但校本课程分组只有 {len(combined_groups)} 组。按当前实现至少需要 4 组。',
             _make_actions(('去校本课程分组', '/combined-groups')),
         ))
     if invalid_assignments:
@@ -335,8 +340,8 @@ def _build_precheck_payload():
             'teacher_capacity_shortage',
             '部分课程的合格教师不足以覆盖所有班级',
             (
-                f'以下课程按“合格教师数 × 每位教师最多带班数”计算，能覆盖的班级数少于需求：{shortage_preview}。'
-                '请为这些课程增加合格教师、调高课程的“单师最多班数”，或减少开课班级。'
+                f'以下课程按"合格教师数 × 每位教师最多带班数"计算，能覆盖的班级数少于需求：{shortage_preview}。'
+                '请为这些课程增加合格教师、调高课程的"单师最多班数"，或减少开课班级。'
             ),
             _make_actions(('去教师资质', '/qualifications'), ('去教师管理', '/teachers')),
         ))
@@ -353,7 +358,7 @@ def _build_precheck_payload():
         warning_issues.append(_make_issue(
             'missing_blocked_times',
             '尚未设置教师禁排时段',
-            '如果教师有外出、教研、跨校或固定半天/全天不能上课，请先在“教师禁排”里补充。',
+            '如果教师有外出、教研、跨校或固定半天/全天不能上课，请先在"教师禁排"里补充。',
             _make_actions(('去教师禁排', '/blocked-times')),
         ))
     if supply_gap > 0:
@@ -460,7 +465,10 @@ def _build_precheck_payload():
         combined_groups_step_status = 'blocked'
         combined_groups_step_detail = f'当前只有 {len(combined_groups)} 个分组；按当前实现，校本课程至少需要 4 组。'
     else:
-        combined_group_teacher_count = sum(1 for teacher in teachers if teacher.combined_class_group_id and not teacher.exclude_from_combined)
+        combined_group_teacher_count = sum(
+            1 for teacher in teachers
+            if teacher.combined_class_group_id and not teacher.exclude_from_combined
+        )
         combined_groups_step_status = 'completed'
         combined_groups_step_detail = f"已配置 {len(combined_groups)} 个校本课程分组，当前有 {combined_group_teacher_count} 位教师手动绑定到分组。"
     steps.append(_make_step(
@@ -599,7 +607,7 @@ def _build_precheck_payload():
         passed_checks.append({
             'key': 'assignments',
             'title': '现有授课分配与教师资质一致',
-            'detail': '当前没有发现“已分配教师但无该课程资质”的冲突。',
+            'detail': '当前没有发现"已分配教师但无该课程资质"的冲突。',
         })
     if locks and not lock_overflows:
         passed_checks.append({
@@ -657,7 +665,8 @@ def _build_precheck_payload():
 @api_view(['GET'])
 def schedule_precheck(request):
     """返回首页和排课页共用的排课前检查信息"""
-    return Response(_build_precheck_payload())
+    school = get_request_school(request)
+    return Response(_build_precheck_payload(school))
 
 
 class ScheduleResultViewSet(
@@ -672,7 +681,8 @@ class ScheduleResultViewSet(
     pagination_class = ScheduleResultPagination
 
     def get_queryset(self):
-        qs = ScheduleResult.objects.annotate(entry_count=Count('entries'))
+        school = get_request_school(self.request)
+        qs = ScheduleResult.objects.filter(school=school).annotate(entry_count=Count('entries'))
         params = self.request.query_params
 
         is_favorite = params.get('is_favorite')
@@ -714,7 +724,7 @@ class ScheduleResultViewSet(
         with transaction.atomic():
             was_active = instance.is_active
             instance.delete()
-            self._ensure_active_fallback(was_active)
+            self._ensure_active_fallback(instance.school, was_active)
 
     @action(detail=False, methods=['post'], url_path='bulk_delete')
     def bulk_delete(self, request):
@@ -725,19 +735,21 @@ class ScheduleResultViewSet(
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        school = get_request_school(request)
         with transaction.atomic():
-            qs = ScheduleResult.objects.filter(pk__in=ids)
+            qs = ScheduleResult.objects.filter(pk__in=ids, school=school)
             had_active = qs.filter(is_active=True).exists()
             deleted_count, _ = qs.delete()
-            self._ensure_active_fallback(had_active)
+            self._ensure_active_fallback(school, had_active)
 
         return Response({'deleted': deleted_count})
 
     @staticmethod
-    def _ensure_active_fallback(was_active):
+    def _ensure_active_fallback(school, was_active):
         if not was_active:
             return
         fallback = ScheduleResult.objects.filter(
+            school=school,
             solve_status__in=['OPTIMAL', 'FEASIBLE']
         ).order_by('-is_favorite', '-created_at').first()
         if fallback:
@@ -748,8 +760,9 @@ class ScheduleResultViewSet(
 @api_view(['POST'])
 def activate_result(request, pk):
     """设置某个排课结果为当前使用"""
+    school = get_request_school(request)
     try:
-        result = ScheduleResult.objects.get(pk=pk)
+        result = ScheduleResult.objects.get(pk=pk, school=school)
     except ScheduleResult.DoesNotExist:
         return Response({'error': '结果不存在'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -760,8 +773,9 @@ def activate_result(request, pk):
 
 @api_view(['GET'])
 def active_schedule(request):
-    """获取当前激活的排课结果"""
-    result = ScheduleResult.objects.filter(is_active=True).first()
+    """获取当前学校的激活排课结果"""
+    school = get_request_school(request)
+    result = ScheduleResult.objects.filter(school=school, is_active=True).first()
     if not result:
         return Response({'error': '没有激活的排课结果'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -772,8 +786,10 @@ def active_schedule(request):
 @api_view(['GET'])
 def class_timetable(request, result_id, class_id):
     """获取某班级的课表"""
+    school = get_request_school(request)
     entries = ScheduleEntry.objects.filter(
-        result_id=result_id, school_class_id=class_id
+        result_id=result_id, school_class_id=class_id,
+        result__school=school,
     ).select_related('subject', 'teacher').order_by('day', 'period')
     serializer = ScheduleEntrySerializer(entries, many=True)
     return Response(serializer.data)
@@ -782,46 +798,42 @@ def class_timetable(request, result_id, class_id):
 @api_view(['GET'])
 def teacher_timetable(request, result_id, teacher_id):
     """获取某教师的课表"""
-    from core.models import Teacher, SchedulerSettings
+    school = get_request_school(request)
 
     entries = ScheduleEntry.objects.filter(
-        result_id=result_id, teacher_id=teacher_id
+        result_id=result_id, teacher_id=teacher_id,
+        result__school=school,
     ).select_related('school_class', 'subject').order_by('day', 'period')
     serializer = ScheduleEntrySerializer(entries, many=True)
     data = serializer.data
 
     # 检查该教师是否参与校本课程
     try:
-        teacher = Teacher.objects.get(pk=teacher_id)
-        result = ScheduleResult.objects.get(pk=result_id)
+        teacher = Teacher.objects.get(pk=teacher_id, school=school)
+        result = ScheduleResult.objects.get(pk=result_id, school=school)
 
         if not teacher.exclude_from_combined:
-            # 从排课结果中获取分组信息
-            # 格式: {"分组名": {"周二": ["教师名"], "周四": ["教师名"]}, ...}
             combined_assignments = result.combined_class_assignments or {}
             teacher_name = teacher.name
 
-            # 查找教师在哪个分组的哪个日期
             assigned_day = None
             assigned_group = None
             for group_name, day_data in combined_assignments.items():
                 if isinstance(day_data, dict):
                     if teacher_name in day_data.get("周二", []):
-                        assigned_day = 1  # 周二
+                        assigned_day = 1
                         assigned_group = group_name
                         break
                     elif teacher_name in day_data.get("周四", []):
-                        assigned_day = 3  # 周四
+                        assigned_day = 3
                         assigned_group = group_name
                         break
 
             if assigned_day is not None:
-                # 获取校本课程时段
-                settings = SchedulerSettings.objects.first()
+                settings = SchedulerSettings.objects.filter(school=school).first()
                 if settings:
                     combined_slots = settings.get_combined_class_slots_list()
 
-                    # 只添加该教师分配日期的校本课程时段
                     for day, period in combined_slots:
                         if day == assigned_day:
                             data.append({
@@ -836,6 +848,5 @@ def teacher_timetable(request, result_id, teacher_id):
     except (Teacher.DoesNotExist, ScheduleResult.DoesNotExist):
         pass
 
-    # 按 day, period 排序
     data.sort(key=lambda x: (x['day'], x['period']))
     return Response(data)

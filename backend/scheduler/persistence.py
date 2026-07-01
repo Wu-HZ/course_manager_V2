@@ -15,7 +15,7 @@ from .models import ScheduleEntry, ScheduleResult
 from .solver import SolveResult
 
 
-def _build_combined_class_assignments(problem: ScheduleProblem) -> dict:
+def _build_combined_class_assignments(problem: ScheduleProblem, school) -> dict:
     """校本课程教师分组分配 → 教师课表视图可消费的格式。
 
     提取/复刻旧 ``engine.assign_combined_class_teachers`` + ``save_combined_class_assignments``
@@ -24,7 +24,7 @@ def _build_combined_class_assignments(problem: ScheduleProblem) -> dict:
     """
     from core.models import CombinedClassGroup
 
-    groups = list(CombinedClassGroup.objects.all().order_by("id"))
+    groups = list(CombinedClassGroup.objects.filter(school=school).order_by("id"))
     if len(groups) < 4:
         return {}
 
@@ -45,7 +45,9 @@ def _build_combined_class_assignments(problem: ScheduleProblem) -> dict:
 
     # 1. 收集可用教师：排除 exclude_from_combined，其余都进(禁排日只在分 Tue/Thu 时影响)
     from core.models import Teacher
-    teacher_qs = Teacher.objects.exclude(exclude_from_combined=True).select_related("travel_group")
+    teacher_qs = Teacher.objects.filter(school=school).exclude(
+        exclude_from_combined=True
+    ).select_related("travel_group")
     available: dict[int, "Teacher"] = {}
     for t in teacher_qs:
         if t.id not in problem.teachers:
@@ -118,6 +120,7 @@ def _build_combined_class_assignments(problem: ScheduleProblem) -> dict:
 def persist(
     problem: ScheduleProblem,
     result: SolveResult,
+    school,
     name: str = "",
     activate: bool = True,
 ) -> ScheduleResult:
@@ -125,9 +128,10 @@ def persist(
 
     一个事务内完成；``activate=True`` 且有可行解时设为当前使用（其余结果自动取消激活）。
     """
-    combined_assignments = _build_combined_class_assignments(problem)
+    combined_assignments = _build_combined_class_assignments(problem, school)
 
     schedule = ScheduleResult.objects.create(
+        school=school,
         name=name,
         solve_status=result.status,
         solve_time_ms=result.solve_time_ms,

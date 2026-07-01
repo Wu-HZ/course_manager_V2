@@ -5,7 +5,7 @@ from .models import (
     TravelGroup, Subject, CombinedClassGroup, Teacher,
     SchoolClass, Location, ClassSubjectTeacher,
     TeacherQualification, ScheduleLock, SchedulerSettings,
-    TeacherBlockedTime, get_qualification_subject_queryset,
+    TeacherBlockedTime, School, get_qualification_subject_queryset,
     is_subject_qualification_managed
 )
 from .serializers import (
@@ -14,68 +14,121 @@ from .serializers import (
     ClassSubjectTeacherSerializer,
     TeacherQualificationSerializer, ScheduleLockSerializer,
     SchedulerSettingsSerializer,
-    TeacherBlockedTimeSerializer
+    TeacherBlockedTimeSerializer, SchoolSerializer
 )
+from .school_utils import get_request_school
 
 
-class TravelGroupViewSet(viewsets.ModelViewSet):
-    queryset = TravelGroup.objects.all()
+# ── School ──────────────────────────────────────────────────────────────
+
+class SchoolViewSet(viewsets.ModelViewSet):
+    queryset = School.objects.all()
+    serializer_class = SchoolSerializer
+
+
+# ── Scoped ViewSets ─────────────────────────────────────────────────────
+
+class _SchooledMixin:
+    """为 ViewSet 自动注入 school 的 perform_create。"""
+
+    def perform_create(self, serializer):
+        school = get_request_school(self.request)
+        serializer.save(school=school)
+
+
+class TravelGroupViewSet(_SchooledMixin, viewsets.ModelViewSet):
     serializer_class = TravelGroupSerializer
 
+    def get_queryset(self):
+        school = get_request_school(self.request)
+        return TravelGroup.objects.filter(school=school)
 
-class SubjectViewSet(viewsets.ModelViewSet):
-    queryset = Subject.objects.all()
+
+class SubjectViewSet(_SchooledMixin, viewsets.ModelViewSet):
     serializer_class = SubjectSerializer
 
+    def get_queryset(self):
+        school = get_request_school(self.request)
+        return Subject.objects.filter(school=school)
 
-class CombinedClassGroupViewSet(viewsets.ModelViewSet):
-    queryset = CombinedClassGroup.objects.all()
+
+class CombinedClassGroupViewSet(_SchooledMixin, viewsets.ModelViewSet):
     serializer_class = CombinedClassGroupSerializer
 
+    def get_queryset(self):
+        school = get_request_school(self.request)
+        return CombinedClassGroup.objects.filter(school=school)
 
-class TeacherViewSet(viewsets.ModelViewSet):
-    queryset = Teacher.objects.select_related(
-        'travel_group', 'combined_class_group'
-    ).all()
+
+class TeacherViewSet(_SchooledMixin, viewsets.ModelViewSet):
     serializer_class = TeacherSerializer
 
+    def get_queryset(self):
+        school = get_request_school(self.request)
+        return Teacher.objects.select_related(
+            'travel_group', 'combined_class_group'
+        ).filter(school=school)
 
-class SchoolClassViewSet(viewsets.ModelViewSet):
-    queryset = SchoolClass.objects.select_related('homeroom_teacher').all()
+
+class SchoolClassViewSet(_SchooledMixin, viewsets.ModelViewSet):
     serializer_class = SchoolClassSerializer
 
+    def get_queryset(self):
+        school = get_request_school(self.request)
+        return SchoolClass.objects.select_related('homeroom_teacher').filter(school=school)
 
-class LocationViewSet(viewsets.ModelViewSet):
-    queryset = Location.objects.all()
+
+class LocationViewSet(_SchooledMixin, viewsets.ModelViewSet):
     serializer_class = LocationSerializer
 
+    def get_queryset(self):
+        school = get_request_school(self.request)
+        return Location.objects.filter(school=school)
 
-class ClassSubjectTeacherViewSet(viewsets.ModelViewSet):
-    queryset = ClassSubjectTeacher.objects.select_related(
-        'school_class', 'subject', 'teacher'
-    ).all()
+
+class ClassSubjectTeacherViewSet(_SchooledMixin, viewsets.ModelViewSet):
     serializer_class = ClassSubjectTeacherSerializer
 
+    def get_queryset(self):
+        school = get_request_school(self.request)
+        return ClassSubjectTeacher.objects.select_related(
+            'school_class', 'subject', 'teacher'
+        ).filter(school=school)
 
-class TeacherQualificationViewSet(viewsets.ModelViewSet):
-    queryset = TeacherQualification.objects.select_related('teacher', 'subject').all()
+
+class TeacherQualificationViewSet(_SchooledMixin, viewsets.ModelViewSet):
     serializer_class = TeacherQualificationSerializer
 
     def get_queryset(self):
+        school = get_request_school(self.request)
         return TeacherQualification.objects.select_related('teacher', 'subject').filter(
-            subject__in=get_qualification_subject_queryset()
+            subject__in=get_qualification_subject_queryset(school)
         )
 
 
-class TeacherBlockedTimeViewSet(viewsets.ModelViewSet):
-    queryset = TeacherBlockedTime.objects.select_related('teacher').all()
+class TeacherBlockedTimeViewSet(_SchooledMixin, viewsets.ModelViewSet):
     serializer_class = TeacherBlockedTimeSerializer
+
+    def get_queryset(self):
+        school = get_request_school(self.request)
+        return TeacherBlockedTime.objects.select_related('teacher').filter(school=school)
+
+
+class ScheduleLockViewSet(_SchooledMixin, viewsets.ModelViewSet):
+    serializer_class = ScheduleLockSerializer
+
+    def get_queryset(self):
+        school = get_request_school(self.request)
+        return ScheduleLock.objects.select_related(
+            'school_class', 'subject', 'teacher'
+        ).filter(school=school)
 
 
 @api_view(['GET'])
 def get_qualifications_by_subject(request, subject_id):
     """获取某门课程的所有合格教师ID列表"""
-    subject = Subject.objects.filter(pk=subject_id).first()
+    school = get_request_school(request)
+    subject = Subject.objects.filter(pk=subject_id, school=school).first()
     if not subject:
         return Response({'detail': '课程不存在。'}, status=status.HTTP_404_NOT_FOUND)
     if not is_subject_qualification_managed(subject):
@@ -94,7 +147,8 @@ def get_qualifications_by_subject(request, subject_id):
 @api_view(['POST'])
 def set_qualifications_for_subject(request, subject_id):
     """批量设置某门课程的合格教师"""
-    subject = Subject.objects.filter(pk=subject_id).first()
+    school = get_request_school(request)
+    subject = Subject.objects.filter(pk=subject_id, school=school).first()
     if not subject:
         return Response({'detail': '课程不存在。'}, status=status.HTTP_404_NOT_FOUND)
     if not is_subject_qualification_managed(subject):
@@ -110,7 +164,7 @@ def set_qualifications_for_subject(request, subject_id):
 
     # 批量创建新资质
     qualifications = [
-        TeacherQualification(subject_id=subject_id, teacher_id=tid)
+        TeacherQualification(school=school, subject_id=subject_id, teacher_id=tid)
         for tid in teacher_ids
     ]
     TeacherQualification.objects.bulk_create(qualifications)
@@ -124,25 +178,20 @@ def set_qualifications_for_subject(request, subject_id):
 
 @api_view(['DELETE'])
 def clear_all_assignments(request):
-    """清空所有授课分配"""
-    count = ClassSubjectTeacher.objects.count()
-    ClassSubjectTeacher.objects.all().delete()
+    """清空当前学校的授课分配"""
+    school = get_request_school(request)
+    count = ClassSubjectTeacher.objects.filter(school=school).count()
+    ClassSubjectTeacher.objects.filter(school=school).delete()
     return Response({'deleted': count})
-
-
-class ScheduleLockViewSet(viewsets.ModelViewSet):
-    queryset = ScheduleLock.objects.select_related(
-        'school_class', 'subject', 'teacher'
-    ).all()
-    serializer_class = ScheduleLockSerializer
 
 
 @api_view(['GET'])
 def get_locks_by_class(request, class_id):
     """获取某班级的所有课表锁定"""
-    locks = ScheduleLock.objects.filter(school_class_id=class_id).select_related(
-        'subject', 'teacher'
-    )
+    school = get_request_school(request)
+    locks = ScheduleLock.objects.filter(
+        school_class_id=class_id, school=school
+    ).select_related('subject', 'teacher')
     serializer = ScheduleLockSerializer(locks, many=True)
     return Response(serializer.data)
 
@@ -150,6 +199,7 @@ def get_locks_by_class(request, class_id):
 @api_view(['POST'])
 def set_lock(request):
     """设置或更新课表锁定"""
+    school = get_request_school(request)
     class_id = request.data.get('school_class')
     day = request.data.get('day')
     period = request.data.get('period')
@@ -166,6 +216,7 @@ def set_lock(request):
         defaults={
             'subject_id': subject_id,
             'teacher_id': teacher_id,
+            'school': school,
         }
     )
     serializer = ScheduleLockSerializer(lock)
@@ -175,6 +226,7 @@ def set_lock(request):
 @api_view(['DELETE'])
 def delete_lock(request):
     """删除课表锁定"""
+    school = get_request_school(request)
     class_id = request.data.get('school_class')
     day = request.data.get('day')
     period = request.data.get('period')
@@ -182,7 +234,8 @@ def delete_lock(request):
     deleted, _ = ScheduleLock.objects.filter(
         school_class_id=class_id,
         day=day,
-        period=period
+        period=period,
+        school=school,
     ).delete()
 
     return Response({'deleted': deleted})
@@ -190,24 +243,27 @@ def delete_lock(request):
 
 @api_view(['DELETE'])
 def clear_all_locks(request):
-    """清空所有课表锁定"""
-    count = ScheduleLock.objects.count()
-    ScheduleLock.objects.all().delete()
+    """清空当前学校的课表锁定"""
+    school = get_request_school(request)
+    count = ScheduleLock.objects.filter(school=school).count()
+    ScheduleLock.objects.filter(school=school).delete()
     return Response({'deleted': count})
 
 
 @api_view(['GET'])
 def get_scheduler_settings(request):
-    """获取排课参数设置"""
-    settings = SchedulerSettings.get_settings()
+    """获取当前学校的排课参数设置"""
+    school = get_request_school(request)
+    settings = SchedulerSettings.get_settings(school)
     serializer = SchedulerSettingsSerializer(settings)
     return Response(serializer.data)
 
 
 @api_view(['PUT', 'PATCH'])
 def update_scheduler_settings(request):
-    """更新排课参数设置"""
-    settings = SchedulerSettings.get_settings()
+    """更新当前学校的排课参数设置"""
+    school = get_request_school(request)
+    settings = SchedulerSettings.get_settings(school)
     serializer = SchedulerSettingsSerializer(settings, data=request.data, partial=True)
     if serializer.is_valid():
         serializer.save()
@@ -217,8 +273,9 @@ def update_scheduler_settings(request):
 
 @api_view(['POST'])
 def reset_scheduler_settings(request):
-    """重置排课参数为默认值"""
-    SchedulerSettings.objects.filter(pk=1).delete()
-    settings = SchedulerSettings.get_settings()  # 创建默认值
+    """重置当前学校的排课参数为默认值"""
+    school = get_request_school(request)
+    SchedulerSettings.objects.filter(school=school).delete()
+    settings = SchedulerSettings.get_settings(school)  # 创建默认值
     serializer = SchedulerSettingsSerializer(settings)
     return Response(serializer.data)

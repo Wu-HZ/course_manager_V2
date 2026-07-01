@@ -1,5 +1,5 @@
 from django.db import models
-from core.models import SchoolClass, Subject, Teacher
+from core.models import School, SchoolClass, Subject, Teacher
 
 
 class ScheduleResult(models.Model):
@@ -12,6 +12,10 @@ class ScheduleResult(models.Model):
         ('UNKNOWN', '未知'),
     ]
 
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE, verbose_name='所属学校',
+        related_name='schedule_results',
+    )
     name = models.CharField('结果名称', max_length=120, blank=True, default='')
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
     is_active = models.BooleanField('当前使用', default=False)
@@ -39,9 +43,9 @@ class ScheduleResult(models.Model):
         return f"{self.display_name} ({self.created_at.strftime('%Y-%m-%d %H:%M')})"
 
     def save(self, *args, **kwargs):
-        # 如果设为当前使用, 取消其他结果的激活状态
+        # 如果设为当前使用, 取消同校其他结果的激活状态
         if self.is_active:
-            ScheduleResult.objects.exclude(pk=self.pk).update(is_active=False)
+            ScheduleResult.objects.filter(school=self.school).exclude(pk=self.pk).update(is_active=False)
         super().save(*args, **kwargs)
 
 

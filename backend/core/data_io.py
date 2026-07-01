@@ -18,6 +18,7 @@ from .models import (
     Location,
     ScheduleLock,
     SchedulerSettings,
+    School,
     SchoolClass,
     Subject,
     Teacher,
@@ -28,6 +29,7 @@ from .models import (
     get_qualification_subject_queryset,
     is_subject_qualification_managed,
 )
+from .school_utils import get_request_school
 
 IMPORT_KEY_HEADER = '导入键(系统生成，请勿修改)'
 BASE_MODELS = {
@@ -289,7 +291,7 @@ def get_model_lookup_kwargs(model, data):
             'period_type': data.get('period_type'),
         }
     if model == SchedulerSettings:
-        return {'pk': 1}
+        return {'school': data.get('school')}
     return None
 
 
@@ -437,7 +439,8 @@ def save_import_instance(model, data, existing_instance=None):
 
 @api_view(['GET'])
 def export_data(request):
-    """导出所有数据到 Excel。"""
+    """导出当前学校的所有数据到 Excel。"""
+    school = get_request_school(request)
     wb = Workbook()
     wb.remove(wb.active)
 
@@ -452,12 +455,18 @@ def export_data(request):
         style_header(ws)
 
         if model == SchedulerSettings:
-            queryset = [SchedulerSettings.get_settings()]
+            queryset = [SchedulerSettings.get_settings(school)]
+        elif hasattr(model, 'school') and hasattr(model._meta, 'get_field'):
+            try:
+                model._meta.get_field('school')
+                queryset = model.objects.filter(school=school)
+            except Exception:
+                queryset = model.objects.all()
         else:
             queryset = model.objects.all()
 
         if model == TeacherQualification:
-            queryset = queryset.filter(subject__in=get_qualification_subject_queryset())
+            queryset = queryset.filter(subject__in=get_qualification_subject_queryset(school))
 
         for obj in queryset:
             ws.append([get_export_value(obj, field) for field in fields])
@@ -487,7 +496,8 @@ def export_data(request):
 
 @api_view(['POST'])
 def import_data(request):
-    """从 Excel 导入数据。"""
+    """从 Excel 导入数据到当前学校。"""
+    school = get_request_school(request)
     file = request.FILES.get('file')
     if not file:
         return Response({'error': '请上传文件'}, status=400)
@@ -537,7 +547,22 @@ def import_data(request):
                         errors.append(f'{sheet_name} 第{row_idx}行: {fk_error}')
                         continue
 
+                    # 为需要 school 的模型自动注入 school
+                    if model != SchedulerSettings and hasattr(model, 'school'):
+                        try:
+                            model._meta.get_field('school')
+                            data['school'] = school
+                        except Exception:
+                            pass
+
                     lookup_kwargs = get_model_lookup_kwargs(model, data)
+                    # 查找时也限定学校
+                    if lookup_kwargs and 'school' not in lookup_kwargs and hasattr(model, 'school'):
+                        try:
+                            model._meta.get_field('school')
+                            lookup_kwargs['school'] = school
+                        except Exception:
+                            pass
                     existing_instance, lookup_error = get_existing_import_instance(model, lookup_kwargs)
                     if lookup_error:
                         errors.append(f'{sheet_name} 第{row_idx}行: {lookup_error}')
@@ -555,6 +580,10 @@ def import_data(request):
                         if validation_error:
                             errors.append(f'{sheet_name} 第{row_idx}行: {validation_error}')
                             continue
+
+                    if model == SchedulerSettings:
+                        # SchedulerSettings: 确保使用当前学校的设置
+                        data['school'] = school
 
                     try:
                         validate_import_instance(model, data, existing_instance)

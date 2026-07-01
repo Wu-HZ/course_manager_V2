@@ -10,6 +10,7 @@ from .solver import SolveResult, solve
 
 
 def run(
+    school,
     time_limit_seconds: int = 60,
     num_workers: int = 8,
     relative_gap_limit: float = 0.08,
@@ -25,7 +26,7 @@ def run(
     - ``result``：:class:`SolveResult`，预检失败时为 None
     - ``conflicts``：INFEASIBLE 时的最小冲突集（中文），否则空列表
     """
-    problem, errors = load_problem()
+    problem, errors = load_problem(school)
     if errors:
         return {"ok": False, "errors": errors, "problem": problem, "result": None, "conflicts": [], "saved": None}
 
@@ -56,7 +57,7 @@ def run(
     if save and result.status in ("OPTIMAL", "FEASIBLE"):
         from .persistence import persist
 
-        saved = persist(problem, result, name=result_name)
+        saved = persist(problem, result, school=school, name=result_name)
 
     return {
         "ok": True,

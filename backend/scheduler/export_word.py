@@ -18,6 +18,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from core.models import SchoolClass, Subject, Teacher, TravelGroup, SchedulerSettings
+from core.school_utils import get_request_school
 from .models import ScheduleEntry, ScheduleResult
 from .time_slots import DAYS
 
@@ -254,9 +255,9 @@ def _add_cell_paragraph(cell_element, text: str, *, bold: bool = False,
 
 # ── 数据准备 ────────────────────────────────────────────────────
 
-def _is_class_meeting(entry_or_subject):
+def _is_class_meeting(entry_or_subject, school):
     """判断一个 entry 或 subject 是否为班会课"""
-    settings = SchedulerSettings.get_settings()
+    settings = SchedulerSettings.get_settings(school)
     meeting_name = settings.class_meeting_name
     # ScheduleEntry 有 subject 外键
     if hasattr(entry_or_subject, 'subject'):
@@ -274,7 +275,7 @@ def _is_combined(entry_or_subject):
     return bool(entry_or_subject and entry_or_subject.is_combined_class)
 
 
-def _build_entry_maps(result_id, view_type, targets):
+def _build_entry_maps(result_id, view_type, targets, school):
     """构建 {target_id: [(day, period, cell_line1, cell_line2)]} 映射
 
     返回值中每个条目是 (day, period, line1, line2) —— 已经算好显示文本。
@@ -284,7 +285,7 @@ def _build_entry_maps(result_id, view_type, targets):
     ).select_related('subject', 'teacher', 'school_class')
 
     # 获取班会/校本课程标识
-    settings = SchedulerSettings.get_settings()
+    settings = SchedulerSettings.get_settings(school)
     meeting_name = settings.class_meeting_name
 
     if view_type == 'class':
@@ -372,7 +373,7 @@ def _build_entry_maps(result_id, view_type, targets):
                 if hasattr(e, 'line1'):
                     # 校本/班会 的 FakeEntry
                     cell_data.append((e.day, e.period, e.line1, e.line2))
-                elif _is_class_meeting(e):
+                elif _is_class_meeting(e, school):
                     cell_data.append((e.day, e.period, e.subject.name if e.subject_id else '班会', ''))
                 elif _is_combined(e):
                     cell_data.append((e.day, e.period, '校本课程', ''))
@@ -466,11 +467,11 @@ def _build_template_element_list(body):
 
 # ── main endpoint ──────────────────────────────────────────────
 
-def _build_single_docx_bytes(result_id, view_type, targets, school_name, semester,
+def _build_single_docx_bytes(result_id, view_type, targets, school, school_name, semester,
                              footer_text, date_text):
     """为一种导出类型生成一个 docx 文件（多页），返回 bytes。"""
 
-    cell_data_maps = _build_entry_maps(result_id, view_type, targets)
+    cell_data_maps = _build_entry_maps(result_id, view_type, targets, school)
 
     # 组装 (target, cell_data) 列表
     page_items = [(t, cell_data_maps.get(t.id, [])) for t in targets]
@@ -616,6 +617,7 @@ def _get_groups_data(result_id):
     except ScheduleResult.DoesNotExist:
         result = None
 
+    school = result.school if result else None
     combined_assignments = result.combined_class_assignments if result else {}
 
     # 合并周二/周四教师列表，不区分日期
@@ -630,8 +632,12 @@ def _get_groups_data(result_id):
         combined_data[group_name] = teachers
 
     # 送教分组
-    travel_groups = list(TravelGroup.objects.all())
-    teachers = list(Teacher.objects.all())
+    if school:
+        travel_groups = list(TravelGroup.objects.filter(school=school))
+        teachers = list(Teacher.objects.filter(school=school))
+    else:
+        travel_groups = []
+        teachers = []
     teachers_by_group = {}
     for t in teachers:
         if t.travel_group_id:
@@ -788,10 +794,11 @@ def export_word(request):
                             status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        ScheduleResult.objects.get(pk=result_id)
+        result = ScheduleResult.objects.get(pk=result_id)
     except ScheduleResult.DoesNotExist:
         return Response({'error': '排课结果不存在'}, status=status.HTTP_404_NOT_FOUND)
 
+    school = result.school
     merge = request.data.get('merge', False)
     timetable_types = [vt for vt in view_types if vt in ('class', 'teacher')]
     has_groups = 'groups' in view_types
@@ -801,11 +808,11 @@ def export_word(request):
         page_items = []
         for vt in timetable_types:
             if vt == 'class':
-                targets = list(SchoolClass.objects.all().order_by('grade', 'name'))
+                targets = list(SchoolClass.objects.filter(school=school).order_by('grade', 'name'))
             else:
-                targets = list(Teacher.objects.all().order_by('id'))
+                targets = list(Teacher.objects.filter(school=school).order_by('id'))
             if targets:
-                cell_data_maps = _build_entry_maps(result_id, vt, targets)
+                cell_data_maps = _build_entry_maps(result_id, vt, targets, school)
                 for t in targets:
                     page_items.append((t, cell_data_maps.get(t.id, [])))
 
@@ -903,15 +910,15 @@ def export_word(request):
         with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
             for vt in timetable_types:
                 if vt == 'class':
-                    targets = list(SchoolClass.objects.all().order_by('grade', 'name'))
+                    targets = list(SchoolClass.objects.filter(school=school).order_by('grade', 'name'))
                 else:
-                    targets = list(Teacher.objects.all().order_by('id'))
+                    targets = list(Teacher.objects.filter(school=school).order_by('id'))
 
                 if not targets:
                     continue
 
                 docx_bytes = _build_single_docx_bytes(
-                    result_id, vt, targets,
+                    result_id, vt, targets, school,
                     school_name, semester, footer_text, date_text
                 )
 

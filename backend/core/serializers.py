@@ -3,13 +3,20 @@ from .models import (
     TravelGroup, Subject, CombinedClassGroup, Teacher,
     SchoolClass, Location, ClassSubjectTeacher,
     TeacherQualification, ScheduleLock, SchedulerSettings,
-    TeacherBlockedTime, get_assignment_subject_validation_error,
+    TeacherBlockedTime, School, get_assignment_subject_validation_error,
     is_subject_qualification_managed
 )
 
 
+class SchoolSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = School
+        fields = '__all__'
+
+
 class TravelGroupSerializer(serializers.ModelSerializer):
     day_off_display = serializers.CharField(source='get_day_off_display', read_only=True)
+    school = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = TravelGroup
@@ -20,6 +27,7 @@ class SubjectSerializer(serializers.ModelSerializer):
     location_type_display = serializers.CharField(
         source='get_location_type_display', read_only=True
     )
+    school = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = Subject
@@ -28,6 +36,7 @@ class SubjectSerializer(serializers.ModelSerializer):
 
 class CombinedClassGroupSerializer(serializers.ModelSerializer):
     teacher_count = serializers.SerializerMethodField()
+    school = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = CombinedClassGroup
@@ -48,6 +57,7 @@ class TeacherSerializer(serializers.ModelSerializer):
         source='get_combined_class_day_display', read_only=True, allow_null=True
     )
     homeroom_class_name = serializers.SerializerMethodField()
+    school = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = Teacher
@@ -63,6 +73,7 @@ class SchoolClassSerializer(serializers.ModelSerializer):
     homeroom_teacher_name = serializers.CharField(
         source='homeroom_teacher.name', read_only=True, allow_null=True
     )
+    school = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = SchoolClass
@@ -73,6 +84,7 @@ class LocationSerializer(serializers.ModelSerializer):
     location_type_display = serializers.CharField(
         source='get_location_type_display', read_only=True
     )
+    school = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = Location
@@ -85,6 +97,7 @@ class ClassSubjectTeacherSerializer(serializers.ModelSerializer):
     )
     subject_name = serializers.CharField(source='subject.name', read_only=True)
     teacher_name = serializers.CharField(source='teacher.name', read_only=True)
+    school = serializers.PrimaryKeyRelatedField(read_only=True)
 
     def validate(self, attrs):
         school_class = attrs.get('school_class') or getattr(self.instance, 'school_class', None)
@@ -106,6 +119,7 @@ class ClassSubjectTeacherSerializer(serializers.ModelSerializer):
 class TeacherQualificationSerializer(serializers.ModelSerializer):
     teacher_name = serializers.CharField(source='teacher.name', read_only=True)
     subject_name = serializers.CharField(source='subject.name', read_only=True)
+    school = serializers.PrimaryKeyRelatedField(read_only=True)
 
     def validate_subject(self, subject):
         if not is_subject_qualification_managed(subject):
@@ -122,6 +136,7 @@ class ScheduleLockSerializer(serializers.ModelSerializer):
     subject_name = serializers.CharField(source='subject.name', read_only=True)
     teacher_name = serializers.CharField(source='teacher.name', read_only=True, allow_null=True)
     day_display = serializers.CharField(source='get_day_display', read_only=True)
+    school = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = ScheduleLock
@@ -129,6 +144,8 @@ class ScheduleLockSerializer(serializers.ModelSerializer):
 
 
 class SchedulerSettingsSerializer(serializers.ModelSerializer):
+    school = serializers.PrimaryKeyRelatedField(read_only=True)
+
     class Meta:
         model = SchedulerSettings
         fields = '__all__'
@@ -138,6 +155,7 @@ class TeacherBlockedTimeSerializer(serializers.ModelSerializer):
     teacher_name = serializers.CharField(source='teacher.name', read_only=True)
     day_display = serializers.CharField(source='get_day_display', read_only=True)
     period_type_display = serializers.CharField(source='get_period_type_display', read_only=True)
+    school = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = TeacherBlockedTime

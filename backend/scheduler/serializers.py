@@ -30,13 +30,14 @@ class ScheduleEntrySerializer(serializers.ModelSerializer):
 class ScheduleResultSerializer(serializers.ModelSerializer):
     entry_count = serializers.SerializerMethodField()
     display_name = serializers.ReadOnlyField()
+    school = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = ScheduleResult
         fields = [
             'id', 'name', 'display_name', 'created_at', 'is_active',
             'is_favorite', 'solve_status', 'solve_time_ms', 'notes',
-            'entry_count', 'combined_class_assignments'
+            'entry_count', 'combined_class_assignments', 'school'
         ]
 
     def get_entry_count(self, obj):
@@ -47,13 +48,14 @@ class ScheduleResultSerializer(serializers.ModelSerializer):
 class ScheduleResultListSerializer(serializers.ModelSerializer):
     entry_count = serializers.SerializerMethodField()
     display_name = serializers.ReadOnlyField()
+    school = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = ScheduleResult
         fields = [
             'id', 'name', 'display_name', 'created_at', 'is_active',
             'is_favorite', 'solve_status', 'solve_time_ms', 'notes',
-            'entry_count', 'combined_class_assignments'
+            'entry_count', 'combined_class_assignments', 'school'
         ]
 
     def get_entry_count(self, obj):

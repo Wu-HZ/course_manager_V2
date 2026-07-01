@@ -67,13 +67,13 @@ def build_calendar(settings: SchedulerSettings) -> Calendar:
     )
 
 
-def load_problem() -> tuple[ScheduleProblem, list[str]]:
-    """从数据库读出一次完整排课输入。
+def load_problem(school) -> tuple[ScheduleProblem, list[str]]:
+    """从数据库读出一次完整排课输入（按学校过滤）。
 
     返回 ``(problem, errors)``；``errors`` 非空表示存在求解前即可判定的静态死结
     （目前仅：某 active 课程无任何合格教师且未手动派课）。
     """
-    settings = SchedulerSettings.get_settings()
+    settings = SchedulerSettings.get_settings(school)
     calendar = build_calendar(settings)
     errors: list[str] = []
 
@@ -82,14 +82,14 @@ def load_problem() -> tuple[ScheduleProblem, list[str]]:
             id=c.id, name=c.name, grade=c.grade,
             homeroom_teacher_id=c.homeroom_teacher_id,
         )
-        for c in SchoolClass.objects.all()
+        for c in SchoolClass.objects.filter(school=school)
     }
 
     subjects: dict[int, SubjectInfo] = {}
     subject_objs: dict[int, Subject] = {}
     class_meeting_id: int | None = None
     combined_subject_id: int | None = None
-    for s in Subject.objects.all():
+    for s in Subject.objects.filter(school=school):
         subject_objs[s.id] = s
         subjects[s.id] = SubjectInfo(
             id=s.id,
@@ -109,11 +109,11 @@ def load_problem() -> tuple[ScheduleProblem, list[str]]:
             combined_subject_id = s.id
 
     blocked: dict[int, list[tuple[int, str]]] = defaultdict(list)
-    for bt in TeacherBlockedTime.objects.all():
+    for bt in TeacherBlockedTime.objects.filter(school=school):
         blocked[bt.teacher_id].append((bt.day, bt.period_type))
 
     teachers: dict[int, TeacherInfo] = {}
-    for t in Teacher.objects.select_related("travel_group").all():
+    for t in Teacher.objects.select_related("travel_group").filter(school=school):
         day_off = t.travel_group.day_off if t.travel_group_id else None
         teachers[t.id] = TeacherInfo(
             id=t.id,
@@ -125,19 +125,19 @@ def load_problem() -> tuple[ScheduleProblem, list[str]]:
         )
 
     qualified: dict[int, set[int]] = defaultdict(set)
-    for q in TeacherQualification.objects.all():
+    for q in TeacherQualification.objects.filter(school=school):
         qualified[q.subject_id].add(q.teacher_id)
     qualified_teachers = {sid: frozenset(ts) for sid, ts in qualified.items()}
 
     forced: dict[tuple[int, int], int] = {}
-    for cst in ClassSubjectTeacher.objects.filter(is_manual=True):
+    for cst in ClassSubjectTeacher.objects.filter(school=school, is_manual=True):
         forced[(cst.school_class_id, cst.subject_id)] = cst.teacher_id
 
     raw_locks: dict[int, set] = defaultdict(set)
     user_lock_counts: dict[tuple[int, int], int] = defaultdict(int)
     teacher_locked_hours: dict[int, int] = defaultdict(int)
     user_lock_records: list[tuple[int, int, int | None, int, int]] = []
-    for lock in ScheduleLock.objects.all():
+    for lock in ScheduleLock.objects.filter(school=school):
         raw_locks[lock.school_class_id].add((lock.day, lock.period))
         user_lock_counts[(lock.school_class_id, lock.subject_id)] += 1
         if lock.teacher_id:
@@ -148,7 +148,7 @@ def load_problem() -> tuple[ScheduleProblem, list[str]]:
     locks_by_class = {cid: frozenset(slots) for cid, slots in raw_locks.items()}
 
     location_capacity = {
-        loc.location_type: loc.capacity for loc in Location.objects.all()
+        loc.location_type: loc.capacity for loc in Location.objects.filter(school=school)
     }
 
     # 枚举 active(c, s)：普通课程才进模型（排除班会、校本、年级不适用）。

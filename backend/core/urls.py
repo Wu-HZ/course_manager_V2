@@ -4,16 +4,17 @@ from . import views
 from .data_io import export_data, import_data
 
 router = DefaultRouter()
-router.register(r'travel-groups', views.TravelGroupViewSet)
-router.register(r'subjects', views.SubjectViewSet)
-router.register(r'combined-class-groups', views.CombinedClassGroupViewSet)
-router.register(r'teachers', views.TeacherViewSet)
-router.register(r'classes', views.SchoolClassViewSet)
-router.register(r'locations', views.LocationViewSet)
-router.register(r'class-subject-teachers', views.ClassSubjectTeacherViewSet)
-router.register(r'teacher-qualifications', views.TeacherQualificationViewSet)
-router.register(r'schedule-locks', views.ScheduleLockViewSet)
-router.register(r'teacher-blocked-times', views.TeacherBlockedTimeViewSet)
+router.register(r'schools', views.SchoolViewSet, basename='school')
+router.register(r'travel-groups', views.TravelGroupViewSet, basename='travelgroup')
+router.register(r'subjects', views.SubjectViewSet, basename='subject')
+router.register(r'combined-class-groups', views.CombinedClassGroupViewSet, basename='combinedclassgroup')
+router.register(r'teachers', views.TeacherViewSet, basename='teacher')
+router.register(r'classes', views.SchoolClassViewSet, basename='schoolclass')
+router.register(r'locations', views.LocationViewSet, basename='location')
+router.register(r'class-subject-teachers', views.ClassSubjectTeacherViewSet, basename='classsubjectteacher')
+router.register(r'teacher-qualifications', views.TeacherQualificationViewSet, basename='teacherqualification')
+router.register(r'schedule-locks', views.ScheduleLockViewSet, basename='schedulelock')
+router.register(r'teacher-blocked-times', views.TeacherBlockedTimeViewSet, basename='teacherblockedtime')
 
 urlpatterns = [
     # 自定义路由放在前面，优先匹配

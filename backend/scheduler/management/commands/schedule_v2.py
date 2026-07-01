@@ -24,7 +24,17 @@ class Command(BaseCommand):
         parser.add_argument("--save", action="store_true", help="把结果落库到 ScheduleResult")
 
     def handle(self, *args, **opts):
-        out = run(opts["time_limit"], opts["workers"], save=opts["save"])
+        from core.models import School
+        school = School.objects.first()
+        if not school:
+            self.stderr.write("没有学校数据，请先创建学校。")
+            return
+        out = run(
+            school,
+            time_limit_seconds=opts["time_limit"],
+            num_workers=opts["workers"],
+            save=opts["save"],
+        )
         problem = out["problem"]
 
         self.stdout.write(self.style.MIGRATE_HEADING("=== 规模 ==="))

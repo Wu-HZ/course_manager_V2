@@ -45,14 +45,32 @@ class ImportKeyModel(models.Model):
         abstract = True
 
 
+class School(ImportKeyModel):
+    """学校"""
+    name = models.CharField('学校名称', max_length=100)
+    short_name = models.CharField('简称', max_length=20, blank=True, default='')
+
+    class Meta:
+        verbose_name = '学校'
+        verbose_name_plural = verbose_name
+
+    def __str__(self):
+        return self.short_name or self.name
+
+
 class TravelGroup(ImportKeyModel):
     """送教分组 - 关联一个禁排日"""
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE, verbose_name="所属学校",
+        related_name='travel_groups',
+    )
     name = models.CharField('分组名称', max_length=50)
     day_off = models.IntegerField('禁排日', choices=DAY_CHOICES)
 
     class Meta:
         verbose_name = '送教分组'
         verbose_name_plural = verbose_name
+        unique_together = ('school', 'name')
 
     def __str__(self):
         return f"{self.name} (禁排: {self.get_day_off_display()})"
@@ -67,6 +85,10 @@ PERIOD_TYPE_CHOICES = [
 
 class TeacherBlockedTime(models.Model):
     """教师禁排时段 - 某教师在特定时段不可排课"""
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE, verbose_name="所属学校",
+        related_name='teacher_blocked_times',
+    )
     teacher = models.ForeignKey(
         'Teacher', on_delete=models.CASCADE,
         verbose_name='教师', related_name='blocked_times'
@@ -85,6 +107,10 @@ class TeacherBlockedTime(models.Model):
 
 class Subject(ImportKeyModel):
     """课程"""
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE, verbose_name="所属学校",
+        related_name='subjects',
+    )
     name = models.CharField('课程名称', max_length=50)
     weekly_hours = models.IntegerField('周课时数', default=1)
     is_am_preferred = models.BooleanField('上午优先', default=False)
@@ -114,6 +140,7 @@ class Subject(ImportKeyModel):
     class Meta:
         verbose_name = '课程'
         verbose_name_plural = verbose_name
+        unique_together = ('school', 'name')
 
     def __str__(self):
         return self.name
@@ -132,11 +159,16 @@ class Subject(ImportKeyModel):
 
 class CombinedClassGroup(ImportKeyModel):
     """校本课程分组 - 4个教师小组"""
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE, verbose_name="所属学校",
+        related_name='combined_class_groups',
+    )
     name = models.CharField('分组名称', max_length=50)
 
     class Meta:
         verbose_name = '校本课程分组'
         verbose_name_plural = verbose_name
+        unique_together = ('school', 'name')
 
     def __str__(self):
         return self.name
@@ -149,6 +181,10 @@ class Teacher(ImportKeyModel):
         (3, '周四'),
     ]
 
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE, verbose_name="所属学校",
+        related_name='teachers',
+    )
     name = models.CharField('姓名', max_length=50)
     travel_group = models.ForeignKey(
         TravelGroup, on_delete=models.SET_NULL,
@@ -180,6 +216,7 @@ class Teacher(ImportKeyModel):
     class Meta:
         verbose_name = '教师'
         verbose_name_plural = verbose_name
+        unique_together = ('school', 'name')
 
     def __str__(self):
         return self.name
@@ -187,6 +224,10 @@ class Teacher(ImportKeyModel):
 
 class SchoolClass(ImportKeyModel):
     """班级"""
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE, verbose_name="所属学校",
+        related_name='classes',
+    )
     name = models.CharField('班级名称', max_length=50)
     grade = models.IntegerField('年级', default=1)
     homeroom_teacher = models.OneToOneField(
@@ -199,6 +240,7 @@ class SchoolClass(ImportKeyModel):
     class Meta:
         verbose_name = '班级'
         verbose_name_plural = verbose_name
+        unique_together = ('school', 'name')
 
     def __str__(self):
         return self.name
@@ -206,6 +248,10 @@ class SchoolClass(ImportKeyModel):
 
 class Location(ImportKeyModel):
     """场地"""
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE, verbose_name="所属学校",
+        related_name='locations',
+    )
     name = models.CharField('场地名称', max_length=50)
     location_type = models.CharField(
         '场地类型', max_length=20, choices=LOCATION_TYPES
@@ -215,6 +261,7 @@ class Location(ImportKeyModel):
     class Meta:
         verbose_name = '场地'
         verbose_name_plural = verbose_name
+        unique_together = ('school', 'name')
 
     def __str__(self):
         return f"{self.name} ({self.get_location_type_display()}, 容量:{self.capacity})"
@@ -222,6 +269,10 @@ class Location(ImportKeyModel):
 
 class TeacherQualification(models.Model):
     """教师资质 - 老师可以教哪些课程"""
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE, verbose_name="所属学校",
+        related_name='teacher_qualifications',
+    )
     teacher = models.ForeignKey(
         Teacher, on_delete=models.CASCADE, verbose_name='教师',
         related_name='qualifications'
@@ -242,6 +293,10 @@ class TeacherQualification(models.Model):
 
 class ClassSubjectTeacher(models.Model):
     """班级-课程-教师 三元关联 (手动指定，可选)"""
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE, verbose_name="所属学校",
+        related_name='subject_assignments',
+    )
     school_class = models.ForeignKey(
         SchoolClass, on_delete=models.CASCADE, verbose_name='班级',
         related_name='subject_assignments'
@@ -266,6 +321,10 @@ class ClassSubjectTeacher(models.Model):
 
 class ScheduleLock(models.Model):
     """课表锁定 - 直接指定某节课的具体时间"""
+    school = models.ForeignKey(
+        School, on_delete=models.CASCADE, verbose_name="所属学校",
+        related_name='schedule_locks',
+    )
     school_class = models.ForeignKey(
         SchoolClass, on_delete=models.CASCADE, verbose_name='班级',
         related_name='schedule_locks'
@@ -284,14 +343,19 @@ class ScheduleLock(models.Model):
     class Meta:
         verbose_name = '课表锁定'
         verbose_name_plural = verbose_name
-        unique_together = ('school_class', 'day', 'period')  # 同班同时间只能锁定一门课
+        unique_together = ('school_class', 'day', 'period')  # 同校同班同时间只能锁定一门课
 
     def __str__(self):
         return f"{self.school_class.name} 周{self.day+1}第{self.period+1}节 {self.subject.name}"
 
 
 class SchedulerSettings(models.Model):
-    """排课参数设置（单例模式，只有一条记录）"""
+    """排课参数设置（每所学校独立一条记录）"""
+
+    school = models.OneToOneField(
+        School, on_delete=models.CASCADE, verbose_name="所属学校",
+        related_name='scheduler_settings',
+    )
 
     # 基础配置
     class_meeting_name = models.CharField(
@@ -364,14 +428,12 @@ class SchedulerSettings(models.Model):
         verbose_name_plural = verbose_name
 
     def save(self, *args, **kwargs):
-        # 单例模式：强制只有一条记录
-        self.pk = 1
         super().save(*args, **kwargs)
 
     @classmethod
-    def get_settings(cls):
-        """获取设置（如果不存在则创建默认值）"""
-        obj, _ = cls.objects.get_or_create(pk=1)
+    def get_settings(cls, school):
+        """获取指定学校的排课设置（如果不存在则创建默认值）"""
+        obj, _ = cls.objects.get_or_create(school=school)
         return obj
 
     def get_combined_class_slots_list(self):
@@ -393,19 +455,19 @@ class SchedulerSettings(models.Model):
         return slots
 
 
-def get_qualification_subject_queryset():
+def get_qualification_subject_queryset(school):
     """教师资质只管理普通课程，不包含班会和校本课程/合班课。"""
-    settings = SchedulerSettings.get_settings()
-    return Subject.objects.exclude(is_combined_class=True).exclude(
-        name=settings.class_meeting_name
-    )
+    settings = SchedulerSettings.get_settings(school)
+    return Subject.objects.filter(school=school).exclude(
+        is_combined_class=True
+    ).exclude(name=settings.class_meeting_name)
 
 
 def is_subject_qualification_managed(subject):
     """判断课程是否应出现在教师资质中。"""
     if subject is None:
         return False
-    settings = SchedulerSettings.get_settings()
+    settings = SchedulerSettings.get_settings(subject.school)
     return (not subject.is_combined_class) and subject.name != settings.class_meeting_name
 
 

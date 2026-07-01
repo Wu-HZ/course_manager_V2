@@ -1,4 +1,21 @@
 <template>
+  <div class="app-nav-school">
+    <el-select
+      :model-value="schoolStore.currentSchoolId"
+      size="small"
+      popper-class="school-select-popper"
+      @change="schoolStore.setCurrentSchool"
+      @visible-change="(v) => v && schoolStore.fetchSchools()"
+    >
+      <el-option
+        v-for="s in schoolStore.schools"
+        :key="s.id"
+        :label="s.short_name || s.name"
+        :value="s.id"
+      />
+    </el-select>
+  </div>
+
   <el-menu
     :default-active="activeMenu"
     :default-openeds="['data']"
@@ -12,6 +29,10 @@
     <el-menu-item index="/">
       <el-icon><House /></el-icon>
       <span>首页</span>
+    </el-menu-item>
+    <el-menu-item index="/schools">
+      <el-icon><School /></el-icon>
+      <span>学校管理</span>
     </el-menu-item>
     <el-sub-menu index="data">
       <template #title>
@@ -49,6 +70,8 @@
 </template>
 
 <script setup>
+import { useSchoolStore } from '../stores/school'
+
 defineProps({
   activeMenu: {
     type: String,
@@ -57,9 +80,29 @@ defineProps({
 })
 
 const emit = defineEmits(['navigate'])
+const schoolStore = useSchoolStore()
 </script>
 
 <style scoped>
+.app-nav-school {
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.app-nav-school :deep(.el-select) {
+  width: 100%;
+}
+
+.app-nav-school :deep(.el-input__wrapper) {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: none;
+}
+
+.app-nav-school :deep(.el-input__inner) {
+  color: #bfcbd9;
+}
+
 .app-nav-menu {
   border-right: none;
 }
