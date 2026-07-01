@@ -128,7 +128,7 @@ class TeacherQualificationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TeacherQualification
-        fields = ['id', 'teacher', 'teacher_name', 'subject', 'subject_name']
+        fields = ['id', 'teacher', 'teacher_name', 'subject', 'subject_name', 'school']
 
 
 class ScheduleLockSerializer(serializers.ModelSerializer):
