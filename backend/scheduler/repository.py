@@ -134,12 +134,14 @@ def load_problem(school) -> tuple[ScheduleProblem, list[str]]:
     raw_locks: dict[int, set] = defaultdict(set)
     user_lock_counts: dict[tuple[int, int], int] = defaultdict(int)
     teacher_locked_hours: dict[int, int] = defaultdict(int)
+    teacher_locked_slots: dict[int, set] = defaultdict(set)
     user_lock_records: list[tuple[int, int, int | None, int, int]] = []
     for lock in ScheduleLock.objects.filter(school=school):
         raw_locks[lock.school_class_id].add((lock.day, lock.period))
         user_lock_counts[(lock.school_class_id, lock.subject_id)] += 1
         if lock.teacher_id:
             teacher_locked_hours[lock.teacher_id] += 1
+            teacher_locked_slots[lock.teacher_id].add((lock.day, lock.period))
         user_lock_records.append(
             (lock.school_class_id, lock.subject_id, lock.teacher_id, lock.day, lock.period)
         )
@@ -220,6 +222,7 @@ def load_problem(school) -> tuple[ScheduleProblem, list[str]]:
         config=config,
         location_capacity=location_capacity,
         teacher_locked_hours=dict(teacher_locked_hours),
+        teacher_locked_slots={t: frozenset(slots) for t, slots in teacher_locked_slots.items()},
         locked_entries=tuple(locked_entries),
     )
     return problem, errors

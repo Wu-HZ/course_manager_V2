@@ -133,6 +133,12 @@ class Command(BaseCommand):
         teacher_hours: dict = defaultdict(int)
         st_classes: dict = defaultdict(set)
         t_main: dict = defaultdict(set)
+        # 锁定条目也占用教师时间片（H3 互斥检查须计入）
+        for le in problem.locked_entries:
+            if le.teacher_id is not None:
+                teacher_slot[(le.teacher_id, le.day, le.period)] += 1
+                tcd[(le.teacher_id, le.class_id, le.day)] += 1
+                teacher_hours[le.teacher_id] += 1
         for L in lessons:
             if L.teacher_id is None:
                 continue

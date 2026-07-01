@@ -97,6 +97,7 @@ class ScheduleProblem:
     config: SchedulerConfig  # H11/H14/H15 参数 + S1-S7 权重
     location_capacity: dict[str, int] = field(default_factory=dict)  # 场地类型 -> 容量
     teacher_locked_hours: dict[int, int] = field(default_factory=dict)  # 教师被用户锁定占用的节数
+    teacher_locked_slots: dict[int, frozenset[Slot]] = field(default_factory=dict)  # 教师被用户锁定占用的具体时间片
     locked_entries: tuple["LockedEntry", ...] = ()  # 班会/校本/用户锁定预锁条目（落库用）
 
     def qual(self, subject_id: int) -> frozenset[int]:
